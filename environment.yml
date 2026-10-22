@@ -3,10 +3,11 @@ channels:
   - conda-forge
   - nodefaults
 dependencies:
-  - geant4=11.4.3
+  - geant4=11.4.3=*noqt*
   - cmake>=3.20
   - ninja
   - cxx-compiler
   - cli11
   - nlohmann_json
   - python>=3.10
+  - expat
