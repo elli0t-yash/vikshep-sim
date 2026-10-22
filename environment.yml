@@ -11,3 +11,5 @@ dependencies:
   - nlohmann_json
   - python>=3.10
   - expat
+  - zlib
+  - freetype
