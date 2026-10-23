@@ -60,6 +60,7 @@ add_executable(vikshep-tests
   tests/test_spec.cc
   tests/test_cli.cc
   tests/test_datasets.cc
+  tests/test_reorder_buffer.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
 target_compile_definitions(vikshep-tests PRIVATE
