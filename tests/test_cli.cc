@@ -105,10 +105,37 @@ TEST_CASE("validate: an invalid spec gives one SPEC_INVALID line and exit 2", "[
   CHECK(line.at("message") == "3 problems in spec");
   REQUIRE(line.at("errors").size() == 3);
   CHECK(line.at("errors")[0].at("pointer") == "/geometry/layers");
+  CHECK_FALSE(line.at("errors")[0].contains("missing"));
   CHECK(line.at("errors")[1].at("pointer") == "/geometry/absorber/material");
   CHECK(line.at("errors")[2].at("pointer") == "/extra");
   // Keys are sorted: the line equals its own sorted serialisation.
   CHECK(r.out == line.dump() + "\n");
+}
+
+TEST_CASE("validate: a missing field gives the parent pointer and a missing key", "[cli]")
+{
+  const TempSpec spec(R"({"spec_version":"1.0","template":"layered_calorimeter",
+    "geometry":{"layers":3,"absorber":{"material":"G4_Pb"},
+                "active":{"material":"G4_lAr","thickness_mm":5},"transverse_mm":100},
+    "gun":{"particle":"e-","energy_GeV":5},"events":20,"seed":42})");
+  const Outcome r = run("validate --spec \"" + spec.path() + "\"");
+  CHECK(r.code == 2);
+  const json line = json::parse(r.out);
+  REQUIRE(line.at("errors").size() == 1);
+  CHECK(line.at("errors")[0].at("pointer") == "/geometry/absorber");
+  CHECK(line.at("errors")[0].at("missing") == "thickness_mm");
+  CHECK(r.out == line.dump() + "\n");
+}
+
+TEST_CASE("validate: a gun start outside the world", "[cli]")
+{
+  const TempSpec spec(R"({"spec_version":"1.0","template":"layered_calorimeter",
+    "geometry":{"layers":3,"absorber":{"material":"G4_Pb","thickness_mm":10},
+                "active":{"material":"G4_lAr","thickness_mm":5},"transverse_mm":100},
+    "gun":{"particle":"e-","energy_GeV":5,"position_mm":[0,0,-500]},"events":20,"seed":42})");
+  const Outcome r = run("validate --spec \"" + spec.path() + "\"");
+  CHECK(r.code == 2);
+  CHECK(json::parse(r.out).at("errors")[0].at("pointer") == "/gun/position_mm");
 }
 
 TEST_CASE("validate: unsupported spec_version", "[cli]")

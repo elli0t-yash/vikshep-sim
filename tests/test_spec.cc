@@ -113,6 +113,9 @@ TEST_CASE("each required field missing is reported against its parent", "[spec]"
       REQUIRE_FALSE(r.ok());
       CHECK(r.code == "SPEC_INVALID");
       CHECK(message_has(r, parent, "missing required field '" + key + "'"));
+      const SpecIssue* issue = find_issue(r, parent);
+      REQUIRE(issue != nullptr);
+      CHECK(issue->missing == key);
     }
   }
 }
@@ -329,10 +332,78 @@ TEST_CASE("the root must be an object", "[spec]")
   CHECK(r.issues[0].pointer == "");
 }
 
-TEST_CASE("issues_to_json has sorted keys", "[spec]")
+TEST_CASE("issues_to_json has sorted keys and a missing key only when set", "[spec]")
 {
-  const json j = issues_to_json({{"/a", "m"}});
-  CHECK(j.dump() == R"([{"message":"m","pointer":"/a"}])");
+  const json j = issues_to_json({{"/a", "m", ""}, {"/b", "n", "c"}});
+  CHECK(j.dump() == R"([{"message":"m","pointer":"/a"},{"message":"n","missing":"c","pointer":"/b"}])");
+}
+
+TEST_CASE("only missing-field errors carry the missing key", "[spec]")
+{
+  json s = without(example(), "/gun/energy_GeV");
+  s["geometry"]["layers"] = 0;
+  const ValidationResult r = check(s);
+  REQUIRE(r.issues.size() == 2);
+  for (const SpecIssue& i : r.issues) {
+    CHECK(i.missing == (i.pointer == "/gun" ? "energy_GeV" : ""));
+  }
+}
+
+TEST_CASE("the gun start must be inside the world", "[spec]")
+{
+  // Example: stack 150 mm long, 100 mm across. World: 300 mm across, 350 mm long.
+  struct Case {
+    json position;
+    bool inside;
+  };
+  const std::vector<Case> cases = {
+      {json::array({0, 0, 0}), true},
+      {json::array({0, 0, -85}), true},
+      {json::array({149, -149, 174}), true},
+      {json::array({0, 0, 175}), false},   // on the boundary: outside
+      {json::array({0, 0, -175}), false},
+      {json::array({150, 0, 0}), false},
+      {json::array({0, -150, 0}), false},
+      {json::array({0, 0, -1000}), false},
+      {json::array({1e9, 0, 0}), false},
+  };
+  for (const Case& c : cases) {
+    DYNAMIC_SECTION(c.position.dump())
+    {
+      const ValidationResult r = check(with(example(), "/gun/position_mm", c.position));
+      CHECK(r.ok() == c.inside);
+      if (!c.inside) {
+        CHECK(message_has(r, "/gun/position_mm", "must be inside the world"));
+      }
+    }
+  }
+  // The world follows the geometry: the same point is inside a longer stack.
+  json longer = with(example(), "/gun/position_mm", json::array({0, 0, -300}));
+  CHECK_FALSE(check(longer).ok());
+  longer = with(longer, "/geometry/layers", 40);
+  CHECK(check(longer).ok());
+}
+
+TEST_CASE("the gun start is not checked while the geometry is broken", "[spec]")
+{
+  json s = with(example(), "/geometry/layers", 0);
+  s["gun"]["position_mm"] = {0, 0, -1000};
+  const ValidationResult r = check(s);
+  CHECK(find_issue(r, "/geometry/layers") != nullptr);
+  CHECK(find_issue(r, "/gun/position_mm") == nullptr);
+}
+
+TEST_CASE("the default gun start is derived from the stack", "[canonical]")
+{
+  // z = -(stack_length / 2 + 10): 150 mm stack gives -85, a 1 mm x 20 mm stack -20.
+  CHECK(canonical_spec(example()).find(R"("position_mm":[0,0,-85])") != std::string::npos);
+  json thin = with(example(), "/geometry/layers", 1);
+  thin = with(thin, "/geometry/absorber/thickness_mm", 15);
+  thin = with(thin, "/geometry/active/thickness_mm", 5);
+  CHECK(canonical_spec(thin).find(R"("position_mm":[0,0,-20])") != std::string::npos);
+  // An explicit start is kept.
+  CHECK(canonical_spec(with(example(), "/gun/position_mm", json::array({1, 2, -3})))
+            .find(R"("position_mm":[1,2,-3])") != std::string::npos);
 }
 
 // ---- canonical form ----
@@ -342,7 +413,7 @@ TEST_CASE("canonical form of the example", "[canonical]")
   const std::string expected =
       R"({"events":20,"geometry":{"absorber":{"material":"G4_Pb","thickness_mm":10},)"
       R"("active":{"material":"G4_lAr","thickness_mm":5},"layers":10,"transverse_mm":100},)"
-      R"("gun":{"direction":[0,0,1],"energy_GeV":5,"particle":"e-","position_mm":[0,0,-20]},)"
+      R"("gun":{"direction":[0,0,1],"energy_GeV":5,"particle":"e-","position_mm":[0,0,-85]},)"
       R"("physics":{"list":"FTFP_BERT"},"seed":42,"sensitive":["active"],)"
       R"("spec_version":"1.0","template":"layered_calorimeter"})";
   CHECK(canonical_spec(example()) == expected);
@@ -365,7 +436,7 @@ TEST_CASE("canonical form ignores key order", "[canonical]")
 TEST_CASE("canonical form treats explicit defaults like omitted ones", "[canonical]")
 {
   json s = example();
-  s["gun"]["position_mm"] = {0, 0, -20};
+  s["gun"]["position_mm"] = {0, 0, -85};
   s["gun"]["direction"] = {0, 0, 7};
   s["physics"] = {{"list", "FTFP_BERT"}};
   s["sensitive"] = {"active"};

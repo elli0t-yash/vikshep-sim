@@ -139,6 +139,12 @@ detector as placed by the geometry (templates place their centre at the world
 origin). For a geometry imported from GDML, the file's own world frame is used
 unchanged.
 
+For the `layered_calorimeter` template: the stack of layers is centred on the
+origin; layer 0 is at the front, the most negative z, and layers follow in +z;
+within each layer the absorber slab comes first and the active slab second. The
+world is a box centred on the origin, larger than the stack by 200 mm in every
+dimension. The `layer` column is the layer index counted from the front.
+
 ### 5.2 Events with zero hits
 
 An event with no hits has **no rows**. It is not represented in `hits.arrow`

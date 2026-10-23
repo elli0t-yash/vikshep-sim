@@ -8,6 +8,9 @@
 #include <string>
 #include <vector>
 
+#include "calorimeter_geometry.hh"
+#include "spec_validate.hh"
+
 // Canonical form: RFC 8785 (JSON Canonicalization Scheme) as far as the
 // documented spec needs it. Differences from RFC 8785:
 //  - Object keys are sorted by their UTF-8 bytes (std::map order), RFC 8785
@@ -166,6 +169,10 @@ json resolve_slab(const json& slab)
 
 json resolve_spec(const json& spec)
 {
+  CalorimeterGeometry geometry_numbers;
+  if (!read_geometry(spec, geometry_numbers)) {
+    throw std::invalid_argument("resolve_spec: spec is not valid");
+  }
   const json& geometry = spec.at("geometry");
   const json& gun = spec.at("gun");
 
@@ -182,7 +189,7 @@ json resolve_spec(const json& spec)
       {"particle", gun.at("particle")},
       {"energy_GeV", as_double(gun.at("energy_GeV"))},
       {"position_mm", gun.contains("position_mm") ? as_vector3(gun.at("position_mm"))
-                                                  : json::array({0.0, 0.0, -20.0})},
+                                                  : json::array({0.0, 0.0, geometry_numbers.default_gun_z_mm()})},
       {"direction", gun.contains("direction") ? as_normalised_vector3(gun.at("direction"))
                                               : json::array({0.0, 0.0, 1.0})},
   };

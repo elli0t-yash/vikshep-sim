@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iomanip>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -120,7 +122,7 @@ class Checker {
 
   void add(const std::string& pointer, const std::string& message)
   {
-    issues.push_back({pointer, message});
+    issues.push_back({pointer, message, ""});
   }
 
   // Reports a field that is not in allowed.
@@ -149,7 +151,7 @@ class Checker {
     auto it = obj.find(key);
     if (it == obj.end()) {
       if (required) {
-        add(pointer, "missing required field " + quote(key));
+        issues.push_back({pointer, "missing required field " + quote(key), key});
       }
       return nullptr;
     }
@@ -320,6 +322,33 @@ class Checker {
     check_unknown(obj, pointer, {"particle", "energy_GeV", "position_mm", "direction"});
   }
 
+  // The gun start must lie strictly inside the world (docs/SPEC.md, 2.2).
+  void check_gun_in_world(const json& spec)
+  {
+    CalorimeterGeometry g;
+    if (!read_geometry(spec, g) || !spec.at("gun").is_object()) {
+      return;
+    }
+    auto it = spec.at("gun").find("position_mm");
+    if (it == spec.at("gun").end() || !it->is_array() || it->size() != 3) {
+      return;
+    }
+    double p[3];
+    for (std::size_t i = 0; i < 3; ++i) {
+      if (!(*it)[i].is_number()) {
+        return;
+      }
+      p[i] = (*it)[i].get<double>();
+    }
+    const double hx = 0.5 * g.world_transverse_mm();
+    const double hz = 0.5 * g.world_length_mm();
+    if (!(std::fabs(p[0]) < hx && std::fabs(p[1]) < hx && std::fabs(p[2]) < hz)) {
+      add("/gun/position_mm", "must be inside the world: |x| < " + number_text(hx) +
+                                  " mm, |y| < " + number_text(hx) + " mm, |z| < " +
+                                  number_text(hz) + " mm for this geometry");
+    }
+  }
+
   void check_physics(const json& obj, const std::string& pointer)
   {
     if (const json* m = member(obj, pointer, "list", false)) {
@@ -375,6 +404,10 @@ class Checker {
     if (const json* m = object_member(spec, "", "gun", true)) {
       check_gun(*m, "/gun");
     }
+    if (spec.contains("geometry") && spec.contains("gun") && spec.at("geometry").is_object() &&
+        spec.at("gun").is_object()) {
+      check_gun_in_world(spec);
+    }
     if (const json* m = object_member(spec, "", "physics", false)) {
       check_physics(*m, "/physics");
     }
@@ -393,6 +426,13 @@ class Checker {
   }
 
  private:
+  static std::string number_text(double v)
+  {
+    std::ostringstream os;
+    os << std::setprecision(10) << v;
+    return os.str();
+  }
+
   static std::string format(double v)
   {
     // Whole numbers only: bounds in messages are integers.
@@ -430,6 +470,43 @@ const std::vector<std::string>& allowed_particles()
   return particles;
 }
 
+bool read_geometry(const json& spec, CalorimeterGeometry& out)
+{
+  auto geometry = spec.find("geometry");
+  if (geometry == spec.end() || !geometry->is_object()) {
+    return false;
+  }
+  auto layers = geometry->find("layers");
+  auto transverse = geometry->find("transverse_mm");
+  if (layers == geometry->end() || transverse == geometry->end() || !is_integral(*layers) ||
+      !transverse->is_number()) {
+    return false;
+  }
+  double thickness[2];
+  int n = 0;
+  for (const char* slab : {"absorber", "active"}) {
+    auto s = geometry->find(slab);
+    if (s == geometry->end() || !s->is_object()) {
+      return false;
+    }
+    auto t = s->find("thickness_mm");
+    if (t == s->end() || !t->is_number()) {
+      return false;
+    }
+    thickness[n++] = t->get<double>();
+  }
+  const double l = layers->get<double>();
+  const double w = transverse->get<double>();
+  if (l < 1 || l > kLayersMax || !(thickness[0] > 0) || !(thickness[1] > 0) || !(w > 0)) {
+    return false;
+  }
+  out.layers = static_cast<int>(l);
+  out.absorber_thickness_mm = thickness[0];
+  out.active_thickness_mm = thickness[1];
+  out.transverse_mm = w;
+  return true;
+}
+
 ValidationResult validate_spec(const json& spec, const Catalogue& catalogue)
 {
   ValidationResult result;
@@ -447,9 +524,10 @@ ValidationResult validate_spec(const json& spec, const Catalogue& catalogue)
   if (version != spec.end() && version->is_string() &&
       version->get<std::string>() != kSpecVersion) {
     result.code = "SPEC_VERSION_UNSUPPORTED";
-    result.issues.push_back({"/spec_version", "unsupported spec_version " +
-                                                  quote(version->get<std::string>()) +
-                                                  "; this build accepts \"" + kSpecVersion + "\""});
+    result.issues.push_back({"/spec_version",
+                             "unsupported spec_version " + quote(version->get<std::string>()) +
+                                 "; this build accepts \"" + kSpecVersion + "\"",
+                             ""});
     return result;
   }
 
@@ -465,7 +543,11 @@ json issues_to_json(const std::vector<SpecIssue>& issues)
 {
   json out = json::array();
   for (const SpecIssue& i : issues) {
-    out.push_back({{"message", i.message}, {"pointer", i.pointer}});
+    json entry = {{"message", i.message}, {"pointer", i.pointer}};
+    if (!i.missing.empty()) {
+      entry["missing"] = i.missing;
+    }
+    out.push_back(entry);
   }
   return out;
 }
