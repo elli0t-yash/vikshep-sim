@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-10-22 (UTC, from date -u).
+Last updated: 2026-10-24 (UTC, from date -u).
 
 ## Milestone Y1: skeleton, CLI and CI
 
@@ -100,3 +100,57 @@ was removed.
   env). It has not run on GitHub.
 - Is physics_lists meant to be the full factory list (36 names), or a curated
   subset?
+- Arrow IPC file writing with nanoarrow (checked 2026-10-24, answer below).
+- Repo placement: this is its own repository, while the desktop app plan
+  assumes the simulator lives in a `sim/` folder of the main Vikshep
+  repository. docs/HITS.md and docs/SIDECAR.md are written to move there
+  without edits: they name sibling documents by file name only and mention no
+  repository paths, branch names or tooling of this repo. Unconfirmed: which
+  repository is the home in the long run.
+- Event seeding per thread and thread-count independence of the output: see
+  docs/notes-B4.md. No answer yet.
+- Decisions awaiting the owner: tables "Decisions to confirm" at the end of
+  docs/HITS.md (D1 to D10) and docs/SIDECAR.md (S1 to S11).
+
+## nanoarrow and the Arrow IPC file format (2026-10-24)
+
+Question: can nanoarrow write an Arrow IPC file with a footer, or only a stream?
+
+Finding: it can write a file. The IPC extension (nanoarrow_ipc.h) has
+`ArrowIpcWriterStartFile()`, documented as "Writes the Arrow IPC magic and sets
+the writer up to track written blocks", and `ArrowIpcWriterFinalizeFile()`,
+documented as "Writes the IPC file's footer, footer size, and ending magic".
+Both are present in the headers of tags 0.7.0, 0.8.0 and 0.9.0. The newest
+nanoarrow on conda-forge at this date is 0.9.0 (GitHub release dated
+2026-07-31).
+
+Relevant details from the same header:
+
+- Dictionaries: `ArrowIpcWriterWriteDictionaryBatch()` writes one dictionary
+  batch. In file mode it returns ENOTSUP for a delta or for a dictionary id
+  that was already written ("IPC files do not support dictionary replacement").
+  This agrees with the single, non-delta dictionary in HITS.md section 1.2.
+- `ArrowIpcWriterWriteArrayViewWithDictionaries()` writes the dictionaries
+  before every batch, so in file mode only one batch can be written that way.
+  Writing many batches presumably means writing the dictionary once with
+  `WriteDictionaryBatch()` and the index batches with `WriteArrayView()`.
+  UNCLEAR: not tried; it is an inference from the header comments.
+- Compression: the extension lists ZSTD and LZ4 codecs; HITS.md requires none.
+
+UNCLEAR, not tested: whether the bytes it produces meet every rule in HITS.md
+(8-byte alignment, zero-length validity buffers, field metadata, no extra
+footer metadata), and whether they are identical between runs. A Y3 spike
+should write the worked example and compare two runs byte for byte before the
+format is frozen.
+
+Sources:
+
+- https://arrow.apache.org/nanoarrow/latest/reference/ipc.html
+- https://github.com/apache/arrow-nanoarrow/blob/main/src/nanoarrow/nanoarrow_ipc.h
+- https://github.com/apache/arrow-nanoarrow/tree/apache-arrow-nanoarrow-0.9.0
+- conda-forge package listing (`micromamba search nanoarrow`)
+
+Because nanoarrow can write a file, no alternative writer is needed on current
+evidence. If the spike above fails a rule in HITS.md, the options are: a
+nanoarrow IPC extension patch, or a different small C++ writer. No choice is
+made here.
