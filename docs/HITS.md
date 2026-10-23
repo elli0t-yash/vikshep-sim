@@ -122,6 +122,12 @@ This relies on the random number stream of an event depending only on the run
 seed and the `event_id`, not on which thread ran it. Section 4.2 makes that true
 by construction.
 
+### 4.1 Event ids
+
+`event_id` runs from 0 to `events - 1`, where `events` is the number of events
+requested in the spec (Decision D4). Ids are consecutive in the run; the file
+contains only the ids that have at least one hit.
+
 ### 4.2 Event seeding
 
 The random stream of an event depends only on the pair (spec `seed`,
@@ -160,12 +166,6 @@ the test suite):
 
 Changing this definition changes the hits of every run, hence every OID, and is
 an incompatible change (section 8).
-
-### 4.1 Event ids
-
-`event_id` runs from 0 to `events - 1`, where `events` is the number of events
-requested in the spec (Decision D4). Ids are consecutive in the run; the file
-contains only the ids that have at least one hit.
 
 ## 5. Units, coordinates, empty events
 
