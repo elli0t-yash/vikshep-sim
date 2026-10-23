@@ -65,6 +65,7 @@ add_executable(vikshep-tests
   tests/test_reorder_buffer.cc
   tests/test_event_seed.cc
   tests/test_event_digest.cc
+  tests/test_digests.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
 target_compile_definitions(vikshep-tests PRIVATE
