@@ -12,6 +12,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include "datasets_check.hh"
 #include "spec_canonical.hh"
 
 using nlohmann::json;
@@ -212,4 +213,56 @@ TEST_CASE("info --json lists the template and versions", "[cli]")
   // Sorted keys, no extra whitespace beyond the indented dump, byte-stable.
   CHECK(r.out == info.dump(2) + "\n");
   CHECK(run("info --json").out == r.out);
+}
+
+TEST_CASE("dev-run prints the table on stdout and nothing else", "[cli][geant4]")
+{
+  if (!find_missing_data_sets(required_data_sets("FTFP_BERT")).empty()) {
+    SKIP("SKIPPED, not passed: Geant4 data sets are missing in this environment");
+  }
+  const TempSpec spec(R"({"spec_version":"1.0","template":"layered_calorimeter",
+    "geometry":{"layers":3,"absorber":{"material":"G4_Pb","thickness_mm":10},
+                "active":{"material":"G4_lAr","thickness_mm":5},"transverse_mm":100},
+    "gun":{"particle":"e-","energy_GeV":0.5},"events":3,"seed":1})");
+  const Outcome r = run("dev-run --threads 2 --spec \"" + spec.path() + "\"");
+  CHECK(r.code == 0);
+  CHECK(r.out.rfind("EXPERIMENTAL dev-run", 0) == 0);
+  CHECK(r.out.find("absorber_MeV") != std::string::npos);
+  CHECK(r.out.find("fraction of incident energy") != std::string::npos);
+  CHECK(r.out.find("threads 2") != std::string::npos);
+  // Geant4 prints a banner and tables; none of it may reach stdout.
+  CHECK(r.out.find("Geant4 version") == std::string::npos);
+  CHECK(r.out.find("Cr_sctns") == std::string::npos);
+}
+
+TEST_CASE("dev-run exits 3 when a data set is missing", "[cli]")
+{
+  const std::string command = "env -u G4LEDATA \"" + std::string(VIKSHEP_SIM_EXE) +
+                              "\" dev-run --spec \"" + example_path() + "\" 2>/dev/null";
+  FILE* pipe = popen(command.c_str(), "r");
+  REQUIRE(pipe != nullptr);
+  char buffer[256];
+  std::string out;
+  while (fgets(buffer, sizeof buffer, pipe) != nullptr) {
+    out += buffer;
+  }
+  const int status = pclose(pipe);
+  CHECK(WIFEXITED(status));
+  CHECK(WEXITSTATUS(status) == 3);
+  CHECK(out.empty());
+}
+
+TEST_CASE("dev-run with an invalid spec exits 2 with the error line", "[cli]")
+{
+  const TempSpec spec(R"({"spec_version":"1.0"})");
+  const Outcome r = run("dev-run --spec \"" + spec.path() + "\"");
+  CHECK(r.code == 2);
+  CHECK(json::parse(r.out).at("code") == "SPEC_INVALID");
+}
+
+TEST_CASE("dev-run rejects --threads 0", "[cli]")
+{
+  const Outcome r = run("dev-run --threads 0 --spec \"" + example_path() + "\"");
+  CHECK(r.code == 2);
+  CHECK(r.out.empty());
 }

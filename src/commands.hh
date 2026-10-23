@@ -17,5 +17,6 @@ constexpr int kExitDataSetsMissing = 3;
 // The callback stores the process exit code in exit_code.
 void register_info(CLI::App& app, int& exit_code);
 void register_validate(CLI::App& app, int& exit_code);
+void register_dev_run(CLI::App& app, int& exit_code);
 void register_run(CLI::App& app, int& exit_code);
 void register_datasets(CLI::App& app, int& exit_code);
