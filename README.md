@@ -6,7 +6,7 @@ transport; this repository only drives it and writes files.
 
 Geant4 is developed by the Geant4 Collaboration and is not part of Vikshep.
 
-Status: milestone Y1 (skeleton, CLI and CI). Simulation is not implemented yet.
+Status: spec v1 and its validator exist; the simulation itself is not implemented yet.
 See STATUS.md.
 
 Determinism target: identical output on the same build, platform and seed.
@@ -39,8 +39,23 @@ anything in the macOS SDK or the system.
 - `vikshep-sim info [--json]` prints tool and Geant4 build information.
   `em_options` lists the EM option suffixes a physics list name can take.
   Omitting the EM option selects the physics list's default.
+- `vikshep-sim validate --spec <file> [--canonical]` checks a simulation spec
+  without running anything (docs/SPEC.md). Valid: exit 0. Invalid: exit 2 and
+  one JSON error line on stdout.
 - `vikshep-sim run` and `vikshep-sim datasets` are stubs. They print
   "not implemented" to stderr and exit with code 2.
+
+## Tests
+
+```sh
+ctest --test-dir build --output-on-failure
+```
+
+## Documents
+
+- docs/SPEC.md and docs/spec.schema.json: the simulation spec.
+- docs/HITS.md: the hits.arrow format.
+- docs/SIDECAR.md: the command-line contract with the desktop app.
 
 ## Rules check
 
