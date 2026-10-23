@@ -23,18 +23,24 @@ endif()
 
 configure_file(src/build_config.hh.in ${CMAKE_CURRENT_BINARY_DIR}/generated/build_config.hh @ONLY)
 
-add_executable(vikshep-sim
-  src/main.cc
+# Everything except main() lives in a library so the tests can link it.
+add_library(vikshep_core STATIC
   src/cmd_info.cc
   src/cmd_run.cc
   src/cmd_datasets.cc
+  src/spec_validate.cc
+  src/spec_canonical.cc
+  src/spec_catalogue.cc
 )
-target_include_directories(vikshep-sim PRIVATE
+target_include_directories(vikshep_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
-target_link_libraries(vikshep-sim PRIVATE
+target_link_libraries(vikshep_core PUBLIC
   Geant4::G4physicslists
   CLI11::CLI11
   nlohmann_json::nlohmann_json
 )
+
+add_executable(vikshep-sim src/main.cc)
+target_link_libraries(vikshep-sim PRIVATE vikshep_core)
