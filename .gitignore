@@ -1,0 +1,19 @@
+# build directories
+build/
+build-*/
+cmake-build-*/
+
+# Agent settings: track only .claude/settings.json
+.claude/*
+!.claude/settings.json
+.claude/settings.local.json
+
+# editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
