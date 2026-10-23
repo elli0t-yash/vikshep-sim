@@ -75,6 +75,15 @@ None. No performance has been measured.
   vikshep-sim datasets: "(milestone Y6)", exit code 2.
 - scripts/check-rules.sh: ok.
 
+## Fresh-environment test (2026-10-23, macOS arm64)
+
+A throwaway env created from environment.yml alone (no extra installs) found
+EXPAT, ZLIB, XercesC, Freetype and Geant4 inside the env, built from a clean
+build directory, and passed the same checks (valid JSON, run exit code 2,
+runs with an empty environment). geant4 resolved to noqt_429d0ab_0 and qt6-main
+was not installed. No change to environment.yml was needed. The throwaway env
+was removed.
+
 ## Open questions
 
 - Linux build string, GDML and multithreading flags, compiler and any
@@ -84,7 +93,5 @@ None. No performance has been measured.
   available locally, nothing pushed).
 - info em_options lists the factory's names as returned, including an empty
   string for the base list. Keep as is or filter it?
-- The local environment still contains qt6-main, left over from the first
-  install before the noqt pin. A fresh environment will not have it.
 - Is physics_lists meant to be the full factory list (36 names), or a curated
   subset?
