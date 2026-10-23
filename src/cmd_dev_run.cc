@@ -2,6 +2,7 @@
 // replaced by `run`.
 
 #include <cmath>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -12,6 +13,7 @@
 #include "commands.hh"
 #include "datasets_check.hh"
 #include "dev_run.hh"
+#include "event_digest.hh"
 #include "spec_canonical.hh"
 #include "spec_file.hh"
 
@@ -88,7 +90,7 @@ void print_report(const DevRunResult& r)
             << "\n";
 }
 
-int run_dev(const std::string& path, int threads)
+int run_dev(const std::string& path, int threads, const std::string& digests_path)
 {
   const SpecLoad load = load_valid_spec(path);
   if (!load.ok) {
@@ -106,7 +108,31 @@ int run_dev(const std::string& path, int threads)
   }
 
   try {
-    print_report(run_dev_simulation(spec, threads));
+    // Optional: one JSON line per event, in event order (EXPERIMENTAL).
+    std::ofstream digests;
+    EventConsumer consumer;
+    if (!digests_path.empty()) {
+      digests.open(digests_path, std::ios::binary | std::ios::trunc);
+      if (!digests) {
+        std::cerr << "cannot write " << digests_path << "\n";
+        return kExitFailure;
+      }
+      const std::vector<std::string> volumes = spec.at("sensitive").get<std::vector<std::string>>();
+      consumer = [&digests, volumes](EventHits&& event) {
+        digests << digest_to_json(make_digest(event), volumes).dump() << "\n";
+        if (!digests) {
+          throw std::runtime_error("writing the event digests failed");
+        }
+      };
+    }
+    print_report(run_dev_simulation(spec, threads, consumer));
+    if (!digests_path.empty()) {
+      digests.close();
+    }
+    if (!digests_path.empty() && digests.fail()) {
+      std::cerr << "writing " << digests_path << " failed\n";
+      return kExitFailure;
+    }
   }
   catch (const std::exception& e) {
     std::cerr << "dev-run failed: " << e.what() << "\n";
@@ -123,10 +149,21 @@ void register_dev_run(CLI::App& app, int& exit_code)
       "dev-run", "EXPERIMENTAL: run a spec and print mean energy deposits (will be replaced by 'run')");
   auto path = std::make_shared<std::string>();
   auto threads = std::make_shared<int>(1);
+  auto digests = std::make_shared<std::string>();
   sub->add_option("--spec", *path, "Path to the JSON spec")->required();
   sub->add_option("--threads", *threads, "Worker threads (default 1)")->check(CLI::PositiveNumber);
+  sub->add_option("--event-digests", *digests,
+                  "EXPERIMENTAL: write one JSON line per event, in event order, to this file");
   sub->footer(
       "Experimental and outside the sidecar contract. Prints a table on stdout; Geant4 output\n"
-      "goes to stderr. Exit codes: 0 ok, 1 failure, 2 invalid spec, 3 Geant4 data sets missing.");
-  sub->callback([path, threads, &exit_code]() { exit_code = run_dev(*path, *threads); });
+      "goes to stderr. Exit codes: 0 ok, 1 failure, 2 invalid spec, 3 Geant4 data sets missing.\n"
+      "\n"
+      "--event-digests lines have the keys edep_by_volume_MeV, edep_sum_MeV, event_id, hash, hits,\n"
+      "hits_by_volume. The hits are those in the volumes of the spec's 'sensitive' field. hash is\n"
+      "FNV-1a 64 bit over the rows in step order, with positions and times quantised to 1e-6 mm\n"
+      "and 1e-6 ns, energy to 1e-9 MeV and momentum to 1e-6 MeV/c (details: src/event_digest.hh).\n"
+      "Events with no hits get a line with hits 0.");
+  sub->callback([path, threads, digests, &exit_code]() {
+    exit_code = run_dev(*path, *threads, *digests);
+  });
 }
