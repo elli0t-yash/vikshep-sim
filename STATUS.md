@@ -91,8 +91,12 @@ was removed.
 
 - Linux build string, GDML and multithreading flags, compiler and any
   Linux-only dependencies: UNCLEAR until the first CI run.
-- Why conda-forge lists two noqt builds per platform: UNCLEAR.
-- The ci.yml was not validated by a YAML parser or by GitHub (no parser
-  available locally, nothing pushed).
+- osx-arm64 has two noqt builds, differing only in the hdf5 dependency
+  (noqt_d9c327f_0: hdf5 >=2.2.0; noqt_429d0ab_0: hdf5 1.14.6). The solver chose
+  noqt_429d0ab_0. The pin does not fix the hdf5 line, so a future solve may pick
+  the other build. Linux has two noqt builds too; whether they differ the same
+  way is UNCLEAR.
+- ci.yml parses as YAML and passes actionlint 1.7.12 (checked in a throwaway
+  env). It has not run on GitHub.
 - Is physics_lists meant to be the full factory list (36 names), or a curated
   subset?
