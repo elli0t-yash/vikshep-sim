@@ -45,3 +45,28 @@ target_link_libraries(vikshep_core PUBLIC
 
 add_executable(vikshep-sim src/main.cc)
 target_link_libraries(vikshep-sim PRIVATE vikshep_core)
+
+# Tests: ctest --test-dir build --output-on-failure
+enable_testing()
+find_package(Catch2 3 REQUIRED)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+include(Catch)
+
+add_executable(vikshep-tests
+  tests/test_spec.cc
+  tests/test_cli.cc
+)
+target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
+target_compile_definitions(vikshep-tests PRIVATE
+  VIKSHEP_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/docs/examples"
+  VIKSHEP_SIM_EXE="$<TARGET_FILE:vikshep-sim>"
+)
+add_dependencies(vikshep-tests vikshep-sim)
+catch_discover_tests(vikshep-tests)
+
+add_test(NAME schema_matches_validator
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_schema.py
+          $<TARGET_FILE:vikshep-sim>
+          ${CMAKE_CURRENT_SOURCE_DIR}/docs/spec.schema.json
+          ${CMAKE_CURRENT_SOURCE_DIR}/docs/examples
+)
