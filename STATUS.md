@@ -201,6 +201,134 @@ mostly vacuum. When data sets are missing the test is reported as skipped, with 
 - dev-run keeps all per-event energies in memory (events x 2 x layers doubles); fine for the
   event counts used here, not designed for 10 million events.
 
+## Milestone Y5: per-event seeding and the hits sensitive detector (no hits.arrow yet)
+
+- [x] Seeding measured (tools/seedprobe, docs/notes-B4.md) and made explicit: every event reseeds
+      its thread's engine from a hash of (spec seed, global event id); hash in HITS.md 4.2
+- [x] Hits sensitive detector honouring `sensitive` (default ["active"]); rows as in HITS.md
+- [x] Reorder buffer (src/reorder_buffer.hh), wired into the run; events leave in event_id order
+- [x] `dev-run --event-digests <file>` (EXPERIMENTAL, outside the sidecar contract)
+- [x] Tests a-g (below); ctest 80 of 80 passed on macOS arm64 (2026-10-23)
+- [ ] hits.arrow writer, provenance.json, run_summary.json, `run` (next prompts)
+
+### Seeding: what was measured (macOS arm64, 2026-10-23)
+
+Details and the command to re-run are in docs/notes-B4.md (marked "measured by an automated
+coding agent, to be re-run by Yash"). Short version, for G4MTRunManager with default settings:
+SeedOncePerCommunication = 0 (seeds per event), the worker sees the global event id, the engine
+state of event k depends only on (master seed, k): the same with 1 and 4 threads, in runs of 5, 20,
+200, 10010, 20000 and 25000 events (across the seed refill at 10000), and the tasking manager gives
+the same states. The serial manager does not: it gave different states from the MT manager with 1
+thread. So the default MT behaviour was already thread-independent, but only because of how
+Geant4 draws its seeds; the explicit reseeding makes it hold by construction. Not tested:
+SetEventModulo, SetSeedOncePerCommunication, a field, Linux.
+
+### Hits: what is recorded
+
+- One row per G4Step in a sensitive volume with edep > 0 (decision D3), as `Hit` in src/hits.hh:
+  volume (slab type), copy_no, layer (= copy_no for this template), x y z (step midpoint, mm),
+  t (pre-step global time, ns), edep (MeV), px py pz (pre-step momentum, MeV/c), track_id,
+  parent_id, pdg, step (G4Track::GetCurrentStepNumber, 1-based). Units are those of HITS.md;
+  nothing is converted later.
+- Rows of an event are collected in a thread-local buffer, in step order, and handed to the reorder
+  buffer when the event ends.
+- dev-run's energy table still covers both slab types whatever `sensitive` says.
+- Measured, 2026-10-23: the 5 GeV example with both volumes sensitive gives 12103 to 13227 hits per
+  event (mean 12621; absorber 11237, active 1384, over 20 events). With the default `sensitive`
+  (active only) about 1250. Relevant for the writer: a Hit is about 100 bytes in memory, so an event
+  with both volumes is about 1.3 MB; the reorder window of dev-run is 16 * threads + 16 events
+  (about 100 MB at 4 threads in the worst case with such events).
+
+### Reorder buffer (src/reorder_buffer.hh)
+
+- Accepts events in any order from any thread, calls the consumer strictly in event_id order, never
+  from two threads at once. The consumer runs on the submitting thread that completes the next id.
+- Memory: unbounded by default (never blocks, cannot deadlock, but a slow event n keeps all later
+  events in memory). With `max_ahead = k`, `submit(id)` waits while `id >= next + k`, so at most k
+  events are held. The next-needed event is never made to wait, so progress is always possible,
+  provided events are started in increasing id order, which G4MTRunManager does (measured: blocks
+  of consecutive ids, in order). A caller that submits a high id before a low id it also owns would
+  wait for itself; the class comment says so. dev-run uses a window of 16 * threads + 16.
+- A consumer that throws marks the buffer failed: the exception reaches the thread that ran the
+  consumer, all other submitters (waiting or later) get an exception, nobody is left waiting. In
+  dev-run the first exception is kept, the run finishes without further work, and it is rethrown.
+- Tested with scrambled and interleaved submissions (8 threads), a slow first event (unbounded and
+  bounded), the window, duplicate ids and a failing consumer; the group was run 10 times in a row
+  without a failure.
+
+### Experimental digests (`dev-run --event-digests <file>`)
+
+One JSON line per event, in event order, keys: edep_by_volume_MeV, edep_sum_MeV, event_id, hash,
+hits, hits_by_volume (entries for the sensitive volumes). hash = FNV-1a 64 bit over the rows in step
+order; each row contributes volume, copy_no, layer, then x y z (quantised to 1e-6 mm), t (1e-6 ns),
+edep (1e-9 MeV), px py pz (1e-6 MeV/c), then track_id, parent_id, pdg, step, all as little-endian
+integers (a quantised value is llround(value / quantum)). Events with no hits get a line with hits 0
+and hash cbf29ce484222325 (the FNV offset basis). Defined in src/event_digest.hh; marked
+experimental in --help.
+
+To compare 1 and 4 threads yourself (from the repository root, environment active, build as in
+README.md):
+
+    ./build/vikshep-sim dev-run --spec docs/examples/calorimeter.json --threads 1 --event-digests /tmp/d1.jsonl > /dev/null 2>&1
+    ./build/vikshep-sim dev-run --spec docs/examples/calorimeter.json --threads 4 --event-digests /tmp/d4.jsonl > /dev/null 2>&1
+    cmp /tmp/d1.jsonl /tmp/d4.jsonl && echo identical
+
+### Tests added
+
+a. reorder buffer unit tests (tests/test_reorder_buffer.cc). b. 1 thread against 4 threads: every
+digest line identical. c. events 0-4 of a 5-event run equal events 0-4 of a 20-event run. d. a
+different seed gives different hashes for every event compared. e. in-process (tests/test_dev_run.cc,
+both volumes sensitive): hit rows are well formed (inside their slab, ids and steps sane, steps
+increasing within a track, events delivered once and in order) and the summed hit energy per volume
+equals the energy table of the same run within 1e-9 relative. f. sensitive ["absorber"] gives hits only
+in the absorber (and the default gives only active). g. an electron aimed along +x leaves the world
+without touching the stack: all events are zero-hit and every one still gets a digest line with count 0.
+Also: seed hash golden values computed independently in Python (tests/test_event_seed.cc), digest unit
+tests, and an unwritable digest file gives exit code 1. All the Geant4 tests report "Skipped" with a
+message when data sets are missing (checked with G4LEDATA unset: 11 skipped, none passed silently).
+A mutation check (seed made to depend on the thread id) made tests b and c fail, so they can detect
+what they test.
+
+### Data set versions for provenance (for the writer prompt)
+
+Confirmed, 2026-10-23: the conda metadata of each data set package is in the environment's
+`conda-meta` folder, `conda-meta/geant4-data-<name>-<version>-<build>.json`. Each file has name,
+version, build, channel, url, sha256 and size of the package (checked for all 12: for example
+geant4-data-emlow 8.8.0 hd8ed1ab_0, geant4-data-particlexs 4.2.0, geant4-data-ensdfstate 3.0,
+geant4-data-photonevaporation 6.1.2, all from conda-forge). The data directories themselves carry
+the data set version in their names (share/Geant4/data/EMLOW8.8, PARTICLEXS4.2, ...), which is what
+Geant4 actually reads.
+
+How the tool can read them at run time (not implemented): for each required data set take the value
+of its environment variable (already done by the data set check, src/datasets_check.cc), record the
+directory's base name (the data set name and version, available without conda), and, if present, find
+the conda record by going four directories up from the data directory to the environment prefix
+(prefix/share/Geant4/data/<dir>) and reading prefix/conda-meta/geant4-data-*.json; record its name,
+version, build and sha256. Do not rely on CONDA_PREFIX (it can be unset); do not hash the data
+directories at run time (EMLOW has 11432 files). The conda version differs a little from the directory
+name (8.8.0 against EMLOW8.8), so record both. A non-conda installation has no conda-meta, so the
+directory name must be enough; provenance should say which source it used.
+
+### Contract and document changes in this milestone
+
+- HITS.md: new section 4.2 (event seeding: the hash, the engine, the two seed sizes, reference values),
+  and section 4 no longer calls thread independence an open question. Changing the hash changes every
+  OID: an incompatible change.
+- notes-B4.md: both questions filled in (see above).
+- No change to SIDECAR.md, SPEC.md or the schema.
+- dev-run gained `--event-digests` (experimental).
+
+### Open at the end of Y5 (UNCLEAR)
+
+- Everything above was run on macOS arm64 only; Linux is untested until CI.
+- Behaviour with other run manager settings is untested (see Seeding).
+- The probe and the notes are measurements by an automated agent; the owner has not re-run them.
+- dev-run holds each event's hits until released (bounded by the window, see above); the writer will
+  need to stream.
+- The notes mark the measurements as made by an automated coding agent. The exact wording first asked
+  for could not be used: scripts/check-rules.sh rejects the product name in files (rule: no AI
+  attribution in files).
+
 ## Versions (2026-10-22)
 
 Geant4 11.4.3 (newest 11.x available for both linux-64 and osx-arm64 on
