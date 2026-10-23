@@ -69,7 +69,15 @@ nlohmann::json build_info()
       {"multithreaded", VIKSHEP_GEANT4_MULTITHREADED != 0},
   };
   j["physics_lists"] = to_strings(factory.AvailablePhysLists());
-  j["em_options"] = to_strings(factory.AvailablePhysListsEM());
+  // The factory lists the default (no EM option) as an empty string. Omitting
+  // the option selects the physics list's default, so it is not listed here.
+  std::vector<std::string> em_options;
+  for (const std::string& name : to_strings(factory.AvailablePhysListsEM())) {
+    if (!name.empty()) {
+      em_options.push_back(name);
+    }
+  }
+  j["em_options"] = em_options;
   j["templates"] = nlohmann::json::array();
   j["datasets"] = nlohmann::json::array();
   j["platform"] = {
@@ -99,6 +107,8 @@ void print_summary(const nlohmann::json& j)
 void register_info(CLI::App& app, int& exit_code)
 {
   CLI::App* sub = app.add_subcommand("info", "Print tool and Geant4 build information");
+  sub->footer("em_options lists suffixes that can be appended to a physics list name.\n"
+              "Omitting the EM option selects the physics list's default.");
   auto as_json = std::make_shared<bool>(false);
   sub->add_flag("--json", *as_json, "Print one JSON object with sorted keys");
   sub->callback([as_json, &exit_code]() {

@@ -45,6 +45,9 @@ freetype 2.14.3.
 - GDML and multithreading flags in info come from Geant4_gdml_FOUND and
   Geant4_multithreaded_FOUND in the installed Geant4Config.cmake, passed through
   configure_file.
+- em_options omits the factory's empty-string entry (the default: omitting the
+  EM option selects the physics list's default). physics_lists stays the full
+  factory list.
 - Link target is Geant4::G4physicslists (provides G4PhysListFactory).
 
 ## Extra environment dependencies (Geant4Config.cmake find_dependency)
@@ -91,7 +94,5 @@ was removed.
 - Why conda-forge lists two noqt builds per platform: UNCLEAR.
 - The ci.yml was not validated by a YAML parser or by GitHub (no parser
   available locally, nothing pushed).
-- info em_options lists the factory's names as returned, including an empty
-  string for the base list. Keep as is or filter it?
 - Is physics_lists meant to be the full factory list (36 names), or a curated
   subset?

@@ -37,6 +37,8 @@ anything in the macOS SDK or the system.
 ## Commands
 
 - `vikshep-sim info [--json]` prints tool and Geant4 build information.
+  `em_options` lists the EM option suffixes a physics list name can take.
+  Omitting the EM option selects the physics list's default.
 - `vikshep-sim run` and `vikshep-sim datasets` are stubs. They print
   "not implemented" to stderr and exit with code 2.
 
