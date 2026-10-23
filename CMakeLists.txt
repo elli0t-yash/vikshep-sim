@@ -28,6 +28,7 @@ add_library(vikshep_core STATIC
   src/cmd_info.cc
   src/cmd_run.cc
   src/cmd_datasets.cc
+  src/cmd_validate.cc
   src/spec_validate.cc
   src/spec_canonical.cc
   src/spec_catalogue.cc
