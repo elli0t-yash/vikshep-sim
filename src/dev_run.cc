@@ -29,6 +29,7 @@
 #include "G4VUserDetectorConstruction.hh"
 #include "G4VUserPrimaryGeneratorAction.hh"
 #include "Randomize.hh"
+#include "event_seed.hh"
 #include "stderr_session.hh"
 
 using nlohmann::json;
@@ -46,6 +47,7 @@ constexpr const char* kRunManagerTypeName = "MT (G4MTRunManager)";
 // Shared by all threads. Each event writes only its own slice.
 struct SharedResults {
   CalorimeterGeometry geometry;
+  std::uint64_t spec_seed = 0;
   std::vector<double>* edep_mev = nullptr;
 };
 
@@ -185,8 +187,15 @@ class EventAction : public G4UserEventAction {
  public:
   explicit EventAction(SharedResults* shared) : shared_(shared) {}
 
-  void BeginOfEventAction(const G4Event*) override
+  void BeginOfEventAction(const G4Event* event) override
   {
+    // The random stream of an event depends only on (spec seed, global event
+    // id). Geant4 has already seeded this thread's engine from its own queue;
+    // overwrite that, so the requirement holds by construction and does not
+    // rest on how G4MTRunManager happens to hand out seeds. Nothing has drawn a
+    // random number yet: the gun is deterministic. If a gun ever draws random
+    // numbers, its GeneratePrimaries() must run after this seeding.
+    seed_event_engine(shared_->spec_seed, static_cast<std::uint64_t>(event->GetEventID()));
     thread_event_buffer().assign(2 * static_cast<std::size_t>(shared_->geometry.layers), 0.0);
   }
 
@@ -281,13 +290,16 @@ DevRunResult run_dev_simulation(const json& spec, int threads)
 
   SharedResults shared;
   shared.geometry = geometry;
+  shared.spec_seed = spec.at("seed").get<std::uint64_t>();
   shared.edep_mev = &result.edep_mev;
 
   run_manager->SetUserInitialization(new DetectorConstruction(spec, geometry));
   run_manager->SetUserInitialization(physics);
   run_manager->SetUserInitialization(new Actions(gun, &shared));
 
-  // The master generator seeds the events. Seed it from the spec.
+  // Geant4's master engine still seeds Geant4's own per-event seeds, which
+  // EventAction replaces. Seed it from the spec anyway so nothing depends on
+  // an unseeded engine.
   CLHEP::HepRandom::setTheSeed(spec.at("seed").get<long>());
 
   run_manager->Initialize();

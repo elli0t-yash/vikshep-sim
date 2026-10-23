@@ -119,9 +119,47 @@ Implementations MUST bound the memory of the buffer (for example by pausing
 workers that are too far ahead). The bound has no effect on the bytes.
 
 This relies on the random number stream of an event depending only on the run
-seed and the `event_id`, not on which thread ran it. That is an open question
-(see notes-B4.md). Until it is answered, thread-count independence of the
-output is a requirement of this format, not a demonstrated property.
+seed and the `event_id`, not on which thread ran it. Section 4.2 makes that true
+by construction.
+
+### 4.2 Event seeding
+
+The random stream of an event depends only on the pair (spec `seed`,
+`event_id`). It does not depend on the number of threads, on which thread ran
+the event, on how many events the run asked for, or on which events ran before
+it. `event_id` is the global event index of section 4.1, never a per-thread
+counter.
+
+At the start of every event, before anything draws a random number for it, the
+simulator reseeds the random engine of the thread running the event with two
+numbers derived from (`seed`, `event_id`). All arithmetic is modulo 2^64.
+
+```
+mix(z):  z ^= z >> 30;  z *= 0xBF58476D1CE4E5B9;
+         z ^= z >> 27;  z *= 0x94D049BB133111EB;  z ^= z >> 31;  return z
+         (the SplitMix64 finalizer)
+
+x0 = mix(seed ^ 0x6A09E667F3BCC909) + mix(event_id ^ 0xBB67AE8584CAA73B)
+x1 = x0 + 0x9E3779B97F4A7C15
+x2 = x1 + 0x9E3779B97F4A7C15
+seed_1 = mix(x1) >> 1       (63 bits)
+seed_2 = mix(x2) >> 32      (32 bits)
+```
+
+The engine is CLHEP's MixMax (Geant4's default), seeded with the two numbers
+as a pair of 64-bit longs (`seed_1`, `seed_2`). That engine builds its stream
+from `seed_1` and the low 32 bits of `seed_2`; `seed_2` is therefore a 32-bit
+value so that no seed bit is ignored. Examples (the reference values pinned in
+the test suite):
+
+| seed | event_id | seed_1 | seed_2 |
+|-----:|---------:|--------|--------|
+| 42 | 0 | 0x23EEB6C6D49A9E51 | 0x7DF8CCAF |
+| 42 | 1 | 0x3426247AA9C440AA | 0x020304E7 |
+| 43 | 0 | 0x3A48103D16C39210 | 0x1CFC01EA |
+
+Changing this definition changes the hits of every run, hence every OID, and is
+an incompatible change (section 8).
 
 ### 4.1 Event ids
 
