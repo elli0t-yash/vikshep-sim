@@ -30,6 +30,7 @@ add_library(vikshep_core STATIC
   src/cmd_datasets.cc
   src/cmd_validate.cc
   src/spec_file.cc
+  src/datasets_check.cc
   src/spec_validate.cc
   src/spec_canonical.cc
   src/spec_catalogue.cc
@@ -56,6 +57,7 @@ include(Catch)
 add_executable(vikshep-tests
   tests/test_spec.cc
   tests/test_cli.cc
+  tests/test_datasets.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
 target_compile_definitions(vikshep-tests PRIVATE
