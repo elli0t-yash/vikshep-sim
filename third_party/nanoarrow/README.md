@@ -18,7 +18,8 @@ that shows this is in `tools/nanoarrow_spike`; results are in STATUS.md.
 
 ## How these files were produced
 
-The files are the output of nanoarrow's own bundling script, unmodified:
+The files are the output of nanoarrow's own bundling script, with **one patch** (see PATCHES.md:
+zero the padding of the footer's Block structs, which otherwise leaked stack bytes into the file):
 
 ```sh
 curl -sSL -o src.tar.gz https://github.com/apache/arrow-nanoarrow/archive/41c78c476817d1d122acc59ddacb7a3cbd00644c.tar.gz
@@ -34,6 +35,6 @@ from `thirdparty/flatcc/LICENSE`.
 
 ## Updating
 
-Changing this code can change the bytes of every `hits.arrow`, hence every OID.
+Any patch is listed in PATCHES.md. Changing this code can change the bytes of every `hits.arrow`, hence every OID.
 Any update must pass the golden-file test (tests/test_hits_writer.cc), and if the
 bytes change, `writer_scheme` (src/versions.hh, docs/HITS.md) must be bumped.

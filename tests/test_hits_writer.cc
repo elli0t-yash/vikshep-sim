@@ -7,6 +7,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "byte_compare.hh"
 #include "cli_helpers.hh"
 #include "hits_writer.hh"
 #include "sha3_256.hh"
@@ -110,7 +111,7 @@ void compare_with_golden(const std::string& written, const std::string& golden_n
   INFO(kGoldenMessage);
   INFO("golden file " << golden_name << ": " << expected.size() << " bytes, written: " << actual.size()
                       << " bytes");
-  CHECK(actual == expected);
+  CHECK_SAME_BYTES(actual, expected);
 }
 
 }  // namespace
@@ -144,11 +145,60 @@ TEST_CASE("the same data gives the same bytes and the same OID", "[writer]")
   const cli::TempFile b("", ".arrow");
   const auto s1 = write_file(a.path(), small_dataset(), {"absorber", "active"}, 4);
   const auto s2 = write_file(b.path(), small_dataset(), {"absorber", "active"}, 4);
-  CHECK(read_file(a.path()) == read_file(b.path()));
+  {
+    const std::string first_file = read_file(a.path());
+    const std::string second_file = read_file(b.path());
+    CHECK_SAME_BYTES(first_file, second_file);
+  }
   CHECK(s1.oid == s2.oid);
   CHECK(s1.bytes == read_file(a.path()).size());
   CHECK(s1.oid == oid_of_bytes(read_file(a.path())));
   CHECK(s1.oid.size() == 28);
+}
+
+namespace {
+
+// Fills 128 KB of stack below the caller with `fill` and returns, so that the stack the next calls use
+// holds that value instead of whatever was there. Not inlined, and written through volatile so the
+// compiler cannot drop it.
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline))
+#endif
+void poison_stack(unsigned char fill)
+{
+  volatile unsigned char buffer[1 << 17];
+  for (std::size_t i = 0; i < sizeof buffer; ++i) {
+    buffer[i] = fill;
+  }
+}
+
+std::string write_with_poisoned_stack(const std::string& path, unsigned char fill)
+{
+  HitsWriter writer(path, {"absorber", "active"}, 4);
+  for (const EventHits& e : small_dataset()) {
+    poison_stack(fill);
+    writer.add_event(e);
+  }
+  poison_stack(fill);  // the footer is built in finish(): its stack frames land on the poisoned stack
+  writer.finish();
+  return read_file(path);
+}
+
+}  // namespace
+
+TEST_CASE("the bytes of hits.arrow do not depend on what was on the stack", "[writer][uninitialised]")
+{
+  // Regression test: the footer's Block structs have 4 bytes of padding, and the vendored nanoarrow once
+  // copied them uninitialised, so the file contained stack bytes (see third_party/nanoarrow/PATCHES.md).
+  // That depended on the compiler, the optimisation level and the platform, so a plain golden-file test
+  // could pass or fail by luck. Poisoning the stack makes any such leak show up everywhere.
+  const std::string golden = read_file(std::string(VIKSHEP_GOLDEN_DIR) + "/hits_small.arrow");
+  for (unsigned char fill : {0x00, 0x55, 0xAA, 0xFF}) {
+    INFO("stack filled with 0x" << std::hex << static_cast<int>(fill));
+    const cli::TempFile file("", ".arrow");
+    const std::string produced = write_with_poisoned_stack(file.path(), fill);
+    CHECK_SAME_BYTES(produced, golden);
+  }
 }
 
 TEST_CASE("the batch size changes the bytes, as HITS.md says", "[writer]")

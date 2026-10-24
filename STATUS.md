@@ -420,6 +420,21 @@ provenance.json). The options as they were put:
   faster: 3.21 s without --out and 4.65 s with --out. One comparison on one machine, not a guarantee that
   compiler flags never change the bytes. Whether to make Release the default is left to the owner.
 
+### Uninitialised padding in the footer (found 2026-10-24, Linux x86-64, gcc 15.3, no optimisation)
+
+- The golden file and two determinism tests failed on the Ubuntu CI job of PR 6. Cause: the vendored
+  nanoarrow copied a stack-allocated `Block` struct (4 bytes of padding) into the Arrow footer. On gcc
+  without optimisation the padding held stack bytes (`55 55 00 00`, `ff 7f 00 00`), so the bytes of
+  hits.arrow, and the OID, depended on the stack. valgrind showed it ("Syscall param write(buf) points to
+  uninitialised byte(s)", created by a stack allocation in `ArrowIpcEncoderEncodeFooter`).
+- Fix: patch 1 in `third_party/nanoarrow/PATCHES.md` (zero the destination before filling it). The golden
+  files are unchanged; `kWriterScheme` stays 1.
+- Guards: a test that fills the stack with 0x00/0x55/0xAA/0xFF around each writer call (fails without the
+  patch on gcc, Linux), and a CI job that runs the writer tests under valgrind on an unoptimised build.
+- Release: the Release (-O3) build on Linux was clean under valgrind and wrote zeros before the patch, but
+  that was luck of the optimiser; it was not guaranteed, and the OID of a file from an affected build
+  would have been wrong in the same way.
+
 ### Contract and document changes in this milestone
 
 - HITS.md: D5 decided (8 bytes, measured); end-of-stream marker rule; new section 6.1 (nanoarrow version,
