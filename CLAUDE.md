@@ -24,6 +24,13 @@ Identity across platforms is not promised.
   v1 (frozen after Y3), the sidecar contract SIDECAR.md (frozen after Y7). The
   OID rule is never changed. If an interface is unclear, open a GitHub issue
   titled "interface: <topic>" instead of guessing.
+- Call templates "ATLAS-like" or "CMS-like", never "the ATLAS detector" or
+  "the CMS detector". Only a collaboration's own exported geometry is the real
+  thing.
+- Never claim simulations are identical across operating systems. The promise
+  is same machine, same build, same seed. Analysis of stored hits is identical
+  everywhere.
+- No secrets, business plans or prices in this repo.
 - Keep STATUS.md current: milestone checklist, decisions, versions,
   measurements with dates.
 - Geant4 credit lives in NOTICE.
