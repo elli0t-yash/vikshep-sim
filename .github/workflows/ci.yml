@@ -8,8 +8,10 @@ on:
 permissions:
   contents: read
 
+# One group per branch, whether the run was started by a push or by a pull request (head_ref is the
+# branch of a pull request, ref_name the branch of a push): the newer run cancels the older one.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
@@ -93,6 +95,8 @@ jobs:
           ./build/vikshep-sim run --spec docs/examples/calorimeter.json --out ci-run --threads 2 --progress none
           python scripts/plot_event.py ci-run --event 0 --out ci-artifacts/shower.png
           cp ci-run/provenance.json ci-artifacts/provenance.json
+          cp ci-run/run_summary.json ci-artifacts/run_summary.json
+          python -c "import json; print('OID of docs/examples/calorimeter.json on this platform:', json.load(open('ci-run/run_summary.json'))['oid'])"
           python scripts/ci_platform_note.py ci-run "${{ matrix.os }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the picture and the provenance
@@ -102,4 +106,5 @@ jobs:
           path: |
             ci-artifacts/shower.png
             ci-artifacts/provenance.json
+            ci-artifacts/run_summary.json
           if-no-files-found: error
