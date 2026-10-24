@@ -13,3 +13,7 @@
 // Returns true if the atomic call was used, false if the fallback was used.
 bool rename_no_replace(const std::filesystem::path& from, const std::filesystem::path& to,
                        std::error_code& ec);
+
+// Which mechanism rename_no_replace() uses on this platform, for logs and tests:
+// "renamex_np(RENAME_EXCL)", "renameat2(RENAME_NOREPLACE)" or "check-then-rename (fallback)".
+const char* rename_no_replace_mechanism();

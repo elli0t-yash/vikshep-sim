@@ -54,3 +54,14 @@ bool rename_no_replace(const fs::path& from, const fs::path& to, std::error_code
   fs::rename(from, to, ec);
   return false;
 }
+
+const char* rename_no_replace_mechanism()
+{
+#if defined(__APPLE__) && defined(RENAME_EXCL)
+  return "renamex_np(RENAME_EXCL)";
+#elif defined(__linux__) && defined(SYS_renameat2)
+  return "renameat2(RENAME_NOREPLACE)";
+#else
+  return "check-then-rename (fallback)";
+#endif
+}
