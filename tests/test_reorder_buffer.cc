@@ -7,6 +7,9 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <cstdint>
+#include <stdexcept>
+#include <utility>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>

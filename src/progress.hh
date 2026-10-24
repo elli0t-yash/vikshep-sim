@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <utility>
 
 // Decides when a progress line is written (docs/SIDECAR.md, section 2.2):
 //  - the first line, done = 0, is written when the run starts;

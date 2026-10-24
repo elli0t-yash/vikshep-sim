@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <string>
+#include <cstdio>
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>

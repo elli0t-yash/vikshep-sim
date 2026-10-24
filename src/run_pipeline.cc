@@ -7,9 +7,13 @@
 #include <fstream>
 #include <system_error>
 #include <vector>
+#include <cstdint>
+#include <string>
+#include <utility>
 
 #include "atomic_rename.hh"
 #include "datasets_check.hh"
+#include "geant4_errors.hh"
 #include "run_outputs.hh"
 #include "spec_canonical.hh"
 
@@ -21,9 +25,13 @@ namespace {
 // Removes the temporary folder unless released.
 class FolderGuard {
  public:
-  explicit FolderGuard(fs::path folder) : folder_(std::move(folder)) {}
+  explicit FolderGuard(fs::path folder) : folder_(std::move(folder))
+  {
+    set_cleanup_folder(folder_.string());  // so a fatal Geant4 exception can remove it too
+  }
   ~FolderGuard()
   {
+    clear_cleanup_folder();
     if (active_) {
       std::error_code ec;
       fs::remove_all(folder_, ec);  // best effort: nothing more can be done in a destructor
@@ -132,7 +140,9 @@ PipelineResult run_to_folder(const json& user_spec, const std::string& out_dir,
   ProvenanceFacts provenance;
   provenance.run_manager = result.table.run_manager_type;
   provenance.default_cut_mm = result.table.default_cut_mm;
-  provenance.data_sets = describe_data_sets(required_data_sets(result.table.physics_list));
+  const auto required = required_data_sets(result.table.physics_list);
+  provenance.data_sets = describe_data_sets(required);
+  provenance.geant4_conda = describe_geant4_package(required);
   write_text_file(temp / "provenance.json", to_file_text(make_provenance(spec, provenance)));
 
   RunSummaryFacts summary;

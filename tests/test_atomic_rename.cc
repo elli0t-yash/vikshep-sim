@@ -3,6 +3,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <string>
+#include <system_error>
+
 #include "atomic_rename.hh"
 #include "cli_helpers.hh"
 
@@ -17,9 +20,14 @@ TEST_CASE("rename_no_replace moves a folder to a new name", "[rename]")
   std::error_code ec;
   const bool atomic = rename_no_replace(from, to, ec);
   CHECK_FALSE(ec);
+  // Printed even when the test passes (visible in the CI log with ctest -V): which call was used.
+  WARN("rename_no_replace mechanism: " << rename_no_replace_mechanism() << "; the atomic call was "
+       << (atomic ? "taken" : "NOT taken (fallback used)"));
 #if defined(__APPLE__) || defined(__linux__)
-  INFO("this platform has a no-overwrite rename call; file systems that lack it use the fallback");
-  (void)atomic;
+  // On macOS and Linux the no-overwrite call must be the one that ran (on the file systems of a
+  // temporary directory: APFS, ext4, tmpfs).
+  CHECK(atomic);
+  CHECK(std::string(rename_no_replace_mechanism()) != "check-then-rename (fallback)");
 #endif
   CHECK_FALSE(fs::exists(from));
   CHECK(fs::exists(to / "file.txt"));
@@ -33,8 +41,13 @@ TEST_CASE("rename_no_replace never replaces an existing folder, not even an empt
   std::ofstream(from / "new.txt") << "new";
   fs::create_directories(to);  // an empty folder: an ordinary rename would replace it
   std::error_code ec;
-  rename_no_replace(from, to, ec);
+  const bool atomic = rename_no_replace(from, to, ec);
   CHECK(ec == std::errc::file_exists);
+#if defined(__APPLE__) || defined(__linux__)
+  CHECK(atomic);  // refused by the operating system (EEXIST), not by a check of ours
+#else
+  (void)atomic;
+#endif
   CHECK(fs::exists(from / "new.txt"));  // the source is untouched
   CHECK(fs::is_empty(to));              // so is the target
 

@@ -13,13 +13,22 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Geant4 REQUIRED)
-
-foreach(_flags "${CMAKE_C_FLAGS}" "${CMAKE_CXX_FLAGS}" "${CMAKE_C_FLAGS_RELEASE}" "${CMAKE_CXX_FLAGS_RELEASE}")
-  if(_flags MATCHES "fast-math|Ofast")
-    message(FATAL_ERROR "-ffast-math / -Ofast are not allowed: they change floating-point results")
+# Floating-point results must not depend on what the optimiser may do to them: refuse the options
+# that let it change them. (tests/check_fast_math.py checks that this fails, and that the real
+# compile commands contain none of them.) Done before anything is searched, so it fails at once.
+foreach(_flags "${CMAKE_C_FLAGS}" "${CMAKE_CXX_FLAGS}" "${CMAKE_C_FLAGS_RELEASE}" "${CMAKE_CXX_FLAGS_RELEASE}"
+               "${CMAKE_C_FLAGS_RELWITHDEBINFO}" "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
+  if(_flags MATCHES "fast-math|Ofast|unsafe-math|finite-math-only|associative-math")
+    message(FATAL_ERROR
+      "-ffast-math, -Ofast and related options are not allowed: they change floating-point results "
+      "(found in: ${_flags})")
   endif()
 endforeach()
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+find_package(Geant4 REQUIRED)
+
+
 find_package(CLI11 REQUIRED)
 find_package(nlohmann_json REQUIRED)
 
@@ -75,6 +84,7 @@ add_library(vikshep_core STATIC
   src/build_info.cc
   src/cancellation.cc
   src/failure.cc
+  src/geant4_errors.cc
   src/hits_writer.cc
   src/run_outputs.cc
   src/run_pipeline.cc
@@ -140,6 +150,7 @@ add_executable(vikshep-tests
   tests/test_channel.cc
   tests/test_progress.cc
   tests/test_run.cc
+  tests/test_g4_fatal.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
 target_compile_definitions(vikshep-tests PRIVATE
@@ -152,7 +163,11 @@ target_compile_definitions(vikshep-tests PRIVATE
   VIKSHEP_SIM_EXE="$<TARGET_FILE:vikshep-sim>"
 )
 add_dependencies(vikshep-tests vikshep-sim)
-catch_discover_tests(vikshep-tests)
+# Every test has a time limit, so that a stall fails the test with a clear message instead of
+# hanging a CI job (a test in a fresh environment once took 1008 s, see STATUS.md). The slowest
+# test of a normal run takes about 15 s.
+set(VIKSHEP_TEST_TIMEOUT 120)
+catch_discover_tests(vikshep-tests PROPERTIES TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
 
 # One Geant4 run per process, so the simulation test has its own executable.
 add_executable(vikshep-sim-tests tests/test_dev_run.cc)
@@ -160,7 +175,7 @@ target_link_libraries(vikshep-sim-tests PRIVATE vikshep_core Catch2::Catch2WithM
 target_compile_definitions(vikshep-sim-tests PRIVATE
   VIKSHEP_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/docs/examples"
 )
-catch_discover_tests(vikshep-sim-tests)
+catch_discover_tests(vikshep-sim-tests PROPERTIES TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
 
 # Test-only program for the stdout channel and the signal handlers.
 add_executable(channel-probe tests/channel_probe.cc)
@@ -176,13 +191,14 @@ add_test(NAME random_draws_independent_of_threads
   COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_random_gun.py
           $<TARGET_FILE:random-gun-probe>
 )
-set_tests_properties(random_draws_independent_of_threads PROPERTIES SKIP_RETURN_CODE 77)
+set_tests_properties(random_draws_independent_of_threads PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
 
 # The golden hits files, read with pyarrow and hashlib (independent of the C++ writer).
 add_test(NAME golden_hits_files_valid
   COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_golden.py
           ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden
 )
+set_tests_properties(golden_hits_files_valid PROPERTIES TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
 
 # Cancellation of `run` by SIGTERM and SIGINT, with the cancel latency (skipped, exit 77,
 # when the Geant4 data sets are missing).
@@ -191,7 +207,7 @@ add_test(NAME run_cancellation_by_signal
           $<TARGET_FILE:vikshep-sim>
           ${CMAKE_CURRENT_SOURCE_DIR}/tests/long_run_spec.json
 )
-set_tests_properties(run_cancellation_by_signal PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+set_tests_properties(run_cancellation_by_signal PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
 
 # The stdout of `run --progress jsonl`: purity, shape, order and cadence, for 1 and 4 threads.
 foreach(_threads 1 4)
@@ -200,8 +216,14 @@ foreach(_threads 1 4)
             $<TARGET_FILE:vikshep-sim>
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/stream_spec.json ${_threads}
   )
-  set_tests_properties(run_stdout_stream_${_threads}_threads PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+  set_tests_properties(run_stdout_stream_${_threads}_threads PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
 endforeach()
+
+add_test(NAME fast_math_is_refused_and_absent
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fast_math.py
+          ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_BINARY_DIR}
+)
+set_tests_properties(fast_math_is_refused_and_absent PROPERTIES TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
 
 add_test(NAME schema_matches_validator
   COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_schema.py
@@ -209,3 +231,4 @@ add_test(NAME schema_matches_validator
           ${CMAKE_CURRENT_SOURCE_DIR}/docs/spec.schema.json
           ${CMAKE_CURRENT_SOURCE_DIR}/docs/examples
 )
+set_tests_properties(schema_matches_validator PROPERTIES TIMEOUT ${VIKSHEP_TEST_TIMEOUT})

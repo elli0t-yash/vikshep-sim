@@ -2,12 +2,15 @@
 #include <fstream>
 #include <set>
 #include <string>
+#include <system_error>
+#include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
 #include "build_config.hh"
 #include "cli_helpers.hh"
+#include "data_sets_guard.hh"
 #include "datasets_check.hh"
 #include "run_outputs.hh"
 #include "sha3_256.hh"
@@ -106,10 +109,8 @@ TEST_CASE("unknown conda metadata is recorded as unknown and is not an error", "
 
 TEST_CASE("the data sets of this environment are found when the environment is active", "[provenance]")
 {
+  SKIP_WITHOUT_DATA_SETS();
   const auto required = required_data_sets("FTFP_BERT");
-  if (!find_missing_data_sets(required).empty()) {
-    SKIP("SKIPPED, not passed: Geant4 data sets are missing in this environment");
-  }
   for (const DataSetRecord& r : describe_data_sets(required)) {
     INFO(r.env_var << " " << r.directory);
     CHECK(r.directory != "unknown");
@@ -125,6 +126,8 @@ ProvenanceFacts facts()
   f.run_manager = "MT (G4MTRunManager)";
   f.default_cut_mm = 0.7;
   f.data_sets = {{"G4LEDATA", "EMLOW8.8", "geant4-data-emlow", "8.8.0", "hd8ed1ab_0"}};
+  f.geant4_conda.version = "11.4.3";
+  f.geant4_conda.build = "noqt_429d0ab_0";
   return f;
 }
 
@@ -142,7 +145,7 @@ TEST_CASE("provenance.json has the guaranteed keys and the new ones", "[provenan
   std::set<std::string> keys;
   for (auto it = p.begin(); it != p.end(); ++it) keys.insert(it.key());
   const std::set<std::string> expected = {
-      "build_type", "contract_version", "data_sets", "default_production_cut_mm", "geant4", "hits_schema_version",
+      "build_type", "contract_version", "data_sets", "default_production_cut_mm", "geant4", "geant4_conda", "hits_schema_version",
       "nanoarrow", "physics_list", "platform", "run_manager", "seed", "seeding_scheme", "spec",
       "spec_oid", "spec_version", "tool_version", "writer_scheme"};
   CHECK(keys == expected);
@@ -152,6 +155,8 @@ TEST_CASE("provenance.json has the guaranteed keys and the new ones", "[provenan
   CHECK(p.at("seed") == 42);
   CHECK(p.at("nanoarrow").at("version") == "0.10.0-SNAPSHOT");
   CHECK(p.at("nanoarrow").at("commit") == "41c78c476817d1d122acc59ddacb7a3cbd00644c");
+  CHECK(p.at("geant4_conda").at("build") == "noqt_429d0ab_0");
+  CHECK(p.at("geant4_conda").at("version") == "11.4.3");
   CHECK(p.at("physics_list") == "FTFP_BERT");
   CHECK(p.at("default_production_cut_mm") == 0.7);
   CHECK(p.at("spec") == example_resolved());
@@ -226,4 +231,39 @@ TEST_CASE("run_summary.json has the keys of SIDECAR.md", "[summary]")
   CHECK(s.at("hits_schema_version") == "1.0");
   CHECK(s.at("spec_version") == "1.0");
   CHECK(s.at("contract_version") == 1);
+}
+
+TEST_CASE("the conda build string of geant4 is read like the data set versions", "[provenance]")
+{
+  FakeEnvironment env;
+  std::ofstream(env.root() / "conda-meta" / "geant4-11.4.3-noqt_429d0ab_0.json") << "{}";
+  // look-alikes that must not match: a data package, the qt mutex, and a name that only starts alike
+  std::ofstream(env.root() / "conda-meta" / "geant4-qt-mutex-11.4.3-noqt_0.json") << "{}";
+  std::ofstream(env.root() / "conda-meta" / "geant4-data-pii-1.3-hd8ed1ab_2.json") << "{}";
+  const std::string emlow = (env.root() / "share/Geant4/data/EMLOW8.8").string();
+  const GetEnv get = [&](const char* name) -> const char* {
+    return std::string(name) == "G4LEDATA" ? emlow.c_str() : nullptr;
+  };
+  const auto required = std::vector<DataSet>{{"G4PARTICLEXS", "G4PARTICLEXSDATA", "geant4-data-particlexs"},
+                                             {"G4EMLOW", "G4LEDATA", "geant4-data-emlow"}};
+  const CondaPackageRecord record = describe_geant4_package(required, get);
+  CHECK(record.version == "11.4.3");
+  CHECK(record.build == "noqt_429d0ab_0");
+
+  // no conda-meta record, or no data directory in the usual layout: "unknown", not an error
+  fs::remove(env.root() / "conda-meta" / "geant4-11.4.3-noqt_429d0ab_0.json");
+  CHECK(describe_geant4_package(required, get).build == "unknown");
+  const GetEnv none = [](const char*) -> const char* { return nullptr; };
+  const CondaPackageRecord nothing = describe_geant4_package(required, none);
+  CHECK(nothing.version == "unknown");
+  CHECK(nothing.build == "unknown");
+}
+
+TEST_CASE("the geant4 package of this environment is found when the environment is active", "[provenance]")
+{
+  SKIP_WITHOUT_DATA_SETS();
+  const CondaPackageRecord record = describe_geant4_package(required_data_sets("FTFP_BERT"));
+  INFO("version " << record.version << " build " << record.build);
+  CHECK(record.version == "11.4.3");
+  CHECK(record.build != "unknown");
 }

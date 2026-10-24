@@ -14,6 +14,7 @@ struct ProvenanceFacts {
   std::string run_manager;        // for example "MT (G4MTRunManager)"
   double default_cut_mm = 0.0;    // default production cut in effect
   std::vector<DataSetRecord> data_sets;
+  CondaPackageRecord geant4_conda;  // the conda package geant4: version and build string
 };
 
 // provenance.json: what produced the hits. Deterministic: the same build, platform, spec

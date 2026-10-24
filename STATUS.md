@@ -577,6 +577,154 @@ for the interpreter in $CONDA_PREFIX/bin and the CMAKE_PREFIX_PATH entries first
 - Windows (Ctrl-Break): specified, not built (S11).
 - A signal during initialisation is acted on only after it (about 1.4 s here).
 
+## Milestone Y8: robustness and CI (branch y8/ci)
+
+- [x] Fatal Geant4 exceptions in `run` become one SIMULATION_FAILED error line, exit 1, no folder, no core
+      dump (src/geant4_errors.cc); tested on a worker thread and on the master thread
+- [x] Fast-math guard moved before any search, tested (tests/check_fast_math.py)
+- [x] 20-run timing loop of compare_particles.sh in Release (below); TIMEOUT 120 s on every ctest case
+- [x] VIKSHEP_REQUIRE_DATA: a Geant4 test that would skip fails instead (C++ and Python tests)
+- [x] The no-overwrite rename: the test now asserts that the OS call is the one used, and prints which
+- [x] Standard headers included where used (libstdc++ does not include them transitively)
+- [x] CI workflow rewritten (written, actionlint clean, **not yet run on GitHub: see below**)
+- [x] CI green on ubuntu-latest and macos-latest with this code (run 40083229186, attempts 1 and 2; see "CI results")
+- ctest: 154 of 154 passed on macOS arm64 (2026-10-24), Release
+
+### Fatal Geant4 exceptions (src/geant4_errors.cc)
+
+`run` installs a G4VExceptionHandler on the master thread and on every worker thread (Geant4 keeps the
+handler per thread). For FatalException, FatalErrorInArgument, RunMustBeAborted and EventMustBeAborted
+(an aborted event would silently leave a hole in the output, so it is treated as fatal too) it: writes
+origin, code and text to stderr; removes the temporary output folder (registered by the pipeline);
+writes one {"code":"SIMULATION_FAILED","event":"error","message":"Geant4 reported a fatal error"} line to the
+stdout channel in jsonl mode; and ends the process with `_Exit(1)` (no destructors, no abort, no core).
+Only the first thread to arrive does this; others wait for the process to end. Warnings (JustWarning,
+IgnoreTheIssue) go to stderr and the run goes on. Other commands (`dev-run`, `validate`, `info`) keep Geant4's
+own handler. Test hook: the environment variable VIKSHEP_TEST_G4_FATAL (`event:N` raises a fatal exception on
+the worker thread that generates event N; `construct` raises one on the master thread while the geometry is
+built). It is read in src/dev_run.cc and is not described in README.md or SIDECAR.md.
+
+### The 1008-second test: 20 runs of compare_particles.sh, Release (2026-10-24, macOS arm64, 4 threads)
+
+Each run: two simulations (5 GeV, 20 events, both slab types sensitive), three plots, via
+`/usr/bin/time -p`; a watchdog would have taken stack samples of any run over 60 s (none was needed).
+
+| | min | p25 | median | mean | p75 | p90 | max | stdev |
+|--|----:|----:|-------:|-----:|----:|----:|----:|------:|
+| wall (s) | 3.24 | 3.33 | 3.44 | 3.68 | 4.23 | 4.39 | 4.41 | 0.45 |
+| user CPU (s) | 2.39 | 2.51 | 2.55 | 2.79 | 3.40 | 3.45 | 3.47 | 0.43 |
+| sys CPU (s) | 0.45 | 0.49 | 0.49 | 0.50 | 0.51 | 0.53 | 0.56 | 0.02 |
+
+All 20 exit codes 0; the two OIDs (electron, pion) were the same in all 20 runs. The slowest run was 1.28
+times the median; none was above 3 times (10.3 s). CPU time is 70 to 97 per cent of the wall time (median
+91 per cent): the runs are CPU bound, not waiting. The 1008 s did **not** recur and I have no stuck process
+to look at. What is known: it happened once, in a fresh environment right after it was created (Python 3.14),
+as the first test that imports matplotlib; recreated, the same test took 15 s and then 4 s; a cold matplotlib
+font cache costs about 10 s here. A hypothesis, not verified: macOS checking many newly created executables
+and libraries on first use. Nothing in the code (reorder buffer, progress reporter, cancel path) is involved
+on the evidence of the 20 runs; no lock was found. The TIMEOUT of 120 s on every ctest case (154 cases
+checked through `ctest --show-only=json-v1`) turns such a stall into a failing test with a message.
+
+### Fast-math guard
+
+tests/check_fast_math.py: configuring with -ffast-math, -Ofast (in CMAKE_CXX_FLAGS, CMAKE_C_FLAGS or
+CMAKE_CXX_FLAGS_RELEASE) or -funsafe-math-optimizations fails with "... are not allowed: they change
+floating-point results"; the real build's compile_commands.json (49 commands) contains no such option, and in
+a Release build every command for our own sources has `-O3 -DNDEBUG -std=c++17`.
+
+### CI: what was looked at, what changed, what is not verified
+
+State on origin (2026-10-24): only y1/skeleton .. y4/calorimeter and main are there; **y5/hits, y6/outputs,
+y6b/plot, y7/run and y8/ci are not**, so CI has not seen any of the code since Y4. The last runs (y4, PR 4,
+run 40073133288): both jobs green, 52 tests; ubuntu-latest 127 s in all (environment 72 s, build 42 s, tests
+5 s), macos-14 91 s (environment 71 s, build 7 s, tests 5 s). The conda builds there: Linux geant4
+11.4.3 noqt_1a35367_0, macOS noqt_d9c327f_0 (a different noqt build from the noqt_429d0ab_0 used locally; they
+differ in the hdf5 dependency), Python 3.15.1 on both.
+
+Changes to .github/workflows/ci.yml (all unrun): matrix ubuntu-latest and macos-latest; push trigger for
+branches y<N>/*, so a branch is tested without a PR; explicit environment cache key
+`env-<os>-<arch>-<hash of environment.yml>` (the action also appends its own hash; caches on a branch are
+visible to that branch and its PR, and to PRs from main's cache); VIKSHEP_REQUIRE_DATA=1; Release; ctest with
+--output-junit; scripts/ci_summary.py writes the counts (ran, passed, failed, skipped) to the job summary and
+fails on any skipped test; an "Evidence" step prints, from the log of each job, the rename mechanism and the
+results of the signal, stdout-purity and determinism tests; the example run, its OID with the note that OIDs
+of different platforms differ and that is not a failure (scripts/ci_platform_note.py), and the PNG of event 0
+with provenance.json as artifacts (actions/upload-artifact v7). Job timeout 45 min.
+
+Linux-specific expectations to check in the first CI log (not verified): the renameat2 branch is taken
+(test prints "renameat2(RENAME_NOREPLACE)"); the signal tests, run_stdout_stream_* (stray std::cout lines)
+and the determinism tests pass on glibc; the code compiles with GCC and libstdc++ (headers were made explicit
+for this, but it was never compiled with GCC here); the Python picked is the environment's.
+
+### Open items
+
+- Stray std::cout line from Geant4 worker threads: workaround in StdoutChannel (std::cout and descriptor 1
+  pointed at stderr), source function unknown. One line per worker thread, written by library code in
+  libG4physicslists / libG4processes_hadronic directly to std::cout, bypassing G4cout.
+- The 1008 s outlier (above): unexplained, did not recur in 20 runs.
+- Linux: untested until CI runs the new code.
+
+## CI results (2026-10-24, branch y8/ci pushed by the owner; run 40083229186)
+
+Both jobs were green on the first run, with no change to the code or the tests. Nothing was skipped or weakened.
+
+| | ubuntu-latest (job id, attempt 1 / 2) | macos-latest (arm64) |
+|--|--|--|
+| result | success / success | success / success |
+| job ids | 120840867223 / 120842691952 | 120840867392 / 120842691741 |
+| whole job | 489 s / 413 s | 244 s / 193 s |
+| environment, first run (cache miss, saved) | 174 s | 72 s |
+| environment, cached (attempt 2, "Cache hit", restored) | 40 s | 25 s |
+| Configure + Build (Release, no compiler cache) | 137 s / 160 s | 23 s / 25 s |
+| Tests (ctest) | 110 s / 131 s | 102 s / 99 s |
+| tests ran / passed / failed / **skipped** | 154 / 154 / 0 / **0** (both attempts) | 154 / 154 / 0 / **0** (both attempts) |
+| compiler (from provenance.json) | gcc 15.3.0, x86_64 | clang 21.1.8, arm64 |
+| geant4 conda build | noqt_f3881a7_0 | noqt_429d0ab_0 |
+| Python for the tests | the environment's python3 | the environment's python3 |
+
+The counts come from scripts/ci_summary.py (ctest --output-junit), which also fails on any skipped test, and
+every Geant4 test ran with VIKSHEP_REQUIRE_DATA=1, so a missing data set would have failed, not skipped.
+The cache is keyed on the hash of environment.yml; caches are scoped to the branch (and are visible to PRs),
+so a new branch pays the first-run cost once. No compiler warnings were counted in the build logs (the build
+does not use -Wall).
+
+Linux evidence from the log of the job (attempt 1):
+- renameat2: "rename_no_replace mechanism: renameat2(RENAME_NOREPLACE)", and the test asserts the atomic call
+  was taken (macOS: renamex_np(RENAME_EXCL)).
+- Signals and cancellation: run_cancellation_by_signal passes: SIGTERM at start (1078 ms, during Geant4
+  initialisation), SIGTERM mid-run (83 ms), SIGINT mid-run (84 ms), double signal (exit 4, 1 ms after the
+  second signal, no output, a .run.partial-<pid> folder remains as S4 allows). Exit code 4 and a single
+  CANCELLED line in each.
+- stdout pure JSON: run_stdout_stream_1_threads and _4_threads pass on Linux, as do the channel tests, so the
+  std::cout workaround works on glibc; cadence checked (no two progress lines closer than 250 ms).
+- Determinism: "1 thread and 4 threads give identical digests", "a: same spec and seed twice", "b: 1 thread and
+  4 threads give identical outputs", "f: ... through run" and random_draws_independent_of_threads pass.
+- The code compiles with GCC 15.3 and libstdc++ (the explicit includes were not needed to compile, only
+  hygiene).
+- spec_oid of docs/examples/calorimeter.json is the same on both platforms (8abf0a9d...: it hashes the
+  canonical spec, which has no platform dependence). The OIDs of the run are in the job summaries; they are
+  expected to differ across platforms and are never compared. The workflow now also logs the OID and keeps
+  run_summary.json as an artifact.
+
+What CI showed that was not known before:
+- The conda build of geant4 chosen by `geant4=11.4.3=*noqt*` is not stable even on one platform: Linux got
+  noqt_1a35367_0 in the Y4 run and noqt_f3881a7_0 now; macOS got noqt_d9c327f_0 in Y4 and noqt_429d0ab_0 now.
+  Results of one build may differ from another in principle (different hdf5 or compiler); provenance.json now
+  records the build string (`geant4_conda`, below) so that a difference is visible.
+- GitHub announces that the ubuntu-latest label moves to Ubuntu 26 (annotation in the runs); the conda
+  environment is independent of the system libraries, but a first run on the new image is worth watching.
+- The cached environment saves about 2 minutes on Linux and 45 s on macOS; building is now the longest step on
+  Linux (137 to 160 s): a compiler cache could be added.
+
+### Changes after the runs (local, not yet pushed, so not yet seen by CI)
+
+- provenance.json has `geant4_conda` = {build, version} of the conda package geant4, found like the data set
+  versions (prefix from the data directories, file name in conda-meta; "unknown" if not found). SIDECAR.md key
+  table updated; tests added (look-alike packages geant4-data-*, geant4-qt-mutex do not match). 156 of 156
+  ctest cases pass locally.
+- Concurrency group per branch (head_ref or ref_name), so a push run and a pull_request run of one branch
+  cancel each other.
+
 ## Versions (2026-10-22)
 
 Geant4 11.4.3 (newest 11.x available for both linux-64 and osx-arm64 on

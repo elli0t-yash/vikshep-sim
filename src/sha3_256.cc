@@ -3,6 +3,9 @@
 #include <fstream>
 #include <stdexcept>
 #include <vector>
+#include <array>
+#include <cstdint>
+#include <string>
 
 #include "errors.hh"
 

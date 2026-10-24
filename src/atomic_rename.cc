@@ -1,6 +1,8 @@
 #include "atomic_rename.hh"
 
 #include <cerrno>
+#include <filesystem>
+#include <system_error>
 
 #if defined(__APPLE__)
 #include <stdio.h>  // renamex_np, RENAME_EXCL
@@ -53,4 +55,15 @@ bool rename_no_replace(const fs::path& from, const fs::path& to, std::error_code
   ec.clear();
   fs::rename(from, to, ec);
   return false;
+}
+
+const char* rename_no_replace_mechanism()
+{
+#if defined(__APPLE__) && defined(RENAME_EXCL)
+  return "renamex_np(RENAME_EXCL)";
+#elif defined(__linux__) && defined(SYS_renameat2)
+  return "renameat2(RENAME_NOREPLACE)";
+#else
+  return "check-then-rename (fallback)";
+#endif
 }

@@ -49,3 +49,17 @@ struct DataSetRecord {
 // are "unknown"; that is not an error.
 std::vector<DataSetRecord> describe_data_sets(const std::vector<DataSet>& required,
                                               const GetEnv& get_env = process_getenv);
+
+// What provenance.json records about the conda package `geant4` itself (key geant4_conda).
+struct CondaPackageRecord {
+  std::string version = "unknown";  // for example "11.4.3"
+  std::string build = "unknown";    // for example "noqt_429d0ab_0"
+};
+
+// Same method as for the data sets: the environment prefix is found from the data directories
+// (<prefix>/share/Geant4/data/<name>, four levels up), then <prefix>/conda-meta is searched for
+// geant4-<version>-<build>.json and the version and build are read from the file name. A package
+// of another name that starts with "geant4-" (geant4-data-*, geant4-qt-mutex) does not match,
+// because the version must start with a digit. "unknown" if there is no such file; never an error.
+CondaPackageRecord describe_geant4_package(const std::vector<DataSet>& required,
+                                           const GetEnv& get_env = process_getenv);

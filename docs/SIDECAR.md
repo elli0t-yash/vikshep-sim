@@ -199,7 +199,7 @@ MUST handle an unknown code by falling back to the exit code.
 | DATASETS_MISSING | Geant4 data sets needed by the spec's physics list are not available |
 | GEOMETRY_ERROR | the geometry (template or GDML) cannot be built |
 | OUTPUT_NOT_WRITABLE | creating or writing the temporary folder, or the final rename, failed |
-| SIMULATION_FAILED | Geant4 reported a fatal error during the run |
+| SIMULATION_FAILED | Geant4 reported a fatal error during the run: a G4Exception of severity FatalException, FatalErrorInArgument, RunMustBeAborted or EventMustBeAborted, on any thread. The run stops at once, exactly one error line is written (the message is short; origin, code and text of the Geant4 exception are on stderr), the temporary output folder is removed, and the process ends with exit code 1 without a core dump. Geant4 warnings (JustWarning) are written to stderr and the run goes on |
 | INTERNAL | any other failure of the program itself |
 | CANCELLED | the run was cancelled (section 7) |
 
@@ -234,6 +234,7 @@ Two-space indentation, one final newline. Guaranteed keys:
 | data_sets | array, sorted by `env_var`, one entry per Geant4 data set the run needs: `env_var` (for example `G4LEDATA`), `directory` (base name of the data directory, which carries the data set version, for example `EMLOW8.8`), and `conda_package`, `conda_version`, `conda_build` (from the conda metadata when it can be found, otherwise the string `"unknown"`; never an error) |
 | default_production_cut_mm | the default production cut in effect |
 | geant4 | as in `info` |
+| geant4_conda | `{"build": ..., "version": ...}` of the conda package `geant4` that provides the Geant4 libraries (for example build `noqt_429d0ab_0`, version `11.4.3`), found like the data set versions: the environment prefix is derived from the data directories, then `conda-meta/geant4-<version>-<build>.json` is looked up by file name. Both are the string `"unknown"` if it cannot be found (never an error). The build string matters because conda-forge has several builds of one Geant4 version (for example noqt builds that differ in their hdf5 dependency) |
 | hits_schema_version | string |
 | nanoarrow | `{"commit": <40 character commit>, "version": <version string>}` of the vendored nanoarrow (HITS.md, section 6.1) |
 | physics_list | name |

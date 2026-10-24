@@ -7,6 +7,8 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <stdexcept>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 

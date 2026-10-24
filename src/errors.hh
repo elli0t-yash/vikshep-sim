@@ -2,6 +2,7 @@
 
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 // Exceptions that map to stable error codes of docs/SIDECAR.md, section 4. Anything else
 // that is thrown becomes INTERNAL (or SIMULATION_FAILED for a std::runtime_error from the

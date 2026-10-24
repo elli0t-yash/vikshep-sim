@@ -10,6 +10,7 @@
 #include <nlohmann/json.hpp>
 
 #include "cli_helpers.hh"
+#include "data_sets_guard.hh"
 #include "datasets_check.hh"
 #include "spec_canonical.hh"
 
@@ -167,9 +168,7 @@ TEST_CASE("info --json lists the template and versions", "[cli]")
 
 TEST_CASE("dev-run prints the table on stdout and nothing else", "[cli][geant4]")
 {
-  if (!find_missing_data_sets(required_data_sets("FTFP_BERT")).empty()) {
-    SKIP("SKIPPED, not passed: Geant4 data sets are missing in this environment");
-  }
+  SKIP_WITHOUT_DATA_SETS();
   const TempSpec spec(R"({"spec_version":"1.0","template":"layered_calorimeter",
     "geometry":{"layers":3,"absorber":{"material":"G4_Pb","thickness_mm":10},
                 "active":{"material":"G4_lAr","thickness_mm":5},"transverse_mm":100},

@@ -8,9 +8,14 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <cstdint>
+#include <cstdlib>
+#include <utility>
+#include <vector>
 
 #include "G4Box.hh"
 #include "G4EmParameters.hh"
+#include "G4Exception.hh"
 #include "G4Event.hh"
 #include "G4HadronicParameters.hh"
 #include "G4LogicalVolume.hh"
@@ -36,12 +41,22 @@
 #include "Randomize.hh"
 #include "errors.hh"
 #include "event_seed.hh"
+#include "geant4_errors.hh"
 #include "reorder_buffer.hh"
 #include "stderr_session.hh"
 
 using nlohmann::json;
 
 namespace {
+
+// Test only: VIKSHEP_TEST_G4_FATAL=event:N raises a fatal G4Exception when event N is generated (on
+// a worker thread), VIKSHEP_TEST_G4_FATAL=construct raises one while the geometry is built (on the
+// master thread). Used to test that a fatal Geant4 exception becomes an error line (tests/).
+bool test_fatal_wanted(const std::string& what)
+{
+  const char* value = std::getenv("VIKSHEP_TEST_G4_FATAL");
+  return value != nullptr && what == value;
+}
 
 // Run manager used: the classic multithreaded manager (G4MTRunManager), chosen
 // explicitly and for any thread count, including 1. It is never the serial
@@ -90,6 +105,9 @@ class DetectorConstruction : public G4VUserDetectorConstruction {
 
   G4VPhysicalVolume* Construct() override
   {
+    if (test_fatal_wanted("construct")) {
+      G4Exception("vikshep-test", "TEST0001", FatalException, "deliberate failure while building the geometry");
+    }
     auto* nist = G4NistManager::Instance();
     G4Material* vacuum = nist->FindOrBuildMaterial("G4_Galactic");
     G4Material* absorber = nist->FindOrBuildMaterial(absorber_material_);
@@ -236,6 +254,9 @@ class PrimaryGenerator : public G4VUserPrimaryGeneratorAction {
     // by construction and does not rest on how G4MTRunManager hands out seeds.
     const std::uint64_t event_id = static_cast<std::uint64_t>(event->GetEventID());
     seed_event_engine(spec_seed_, event_id);
+    if (test_fatal_wanted("event:" + std::to_string(event_id))) {
+      G4Exception("vikshep-test", "TEST0002", FatalException, "deliberate failure while generating an event");
+    }
     if (after_seeding_) {
       after_seeding_(event_id);  // test hook
     }
@@ -302,6 +323,7 @@ class Actions : public G4VUserActionInitialization {
 
   void Build() const override
   {
+    install_exception_handler_on_this_thread();  // this is a worker thread
     SetUserAction(new PrimaryGenerator(gun_, shared_->spec_seed, after_seeding_));
     SetUserAction(new EventAction(shared_));
   }
@@ -353,6 +375,8 @@ DevRunResult run_dev_simulation(const json& spec, int threads, const EventConsum
   result.physics_list = spec.at("physics").at("list").get<std::string>();
   result.run_manager_type = kRunManagerTypeName;
   result.edep_mev.assign(static_cast<std::size_t>(events) * 2 * geometry.layers, 0.0);
+
+  install_exception_handler_on_this_thread();  // the master thread (no-op unless `run` enabled it)
 
   // Everything Geant4 prints goes to stderr. Installed before the run manager
   // exists, because creating it prints the banner.

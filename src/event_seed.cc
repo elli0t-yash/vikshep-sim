@@ -1,3 +1,5 @@
+
+#include <cstdint>
 #include "event_seed.hh"
 
 #include "Randomize.hh"
