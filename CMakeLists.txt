@@ -51,6 +51,7 @@ add_library(vikshep_core STATIC
   src/dev_run.cc
   src/event_digest.cc
   src/event_seed.cc
+  src/hits_writer.cc
   src/sha3_256.cc
   src/spec_file.cc
   src/spec_validate.cc
@@ -87,10 +88,12 @@ add_executable(vikshep-tests
   tests/test_event_digest.cc
   tests/test_vendored.cc
   tests/test_sha3.cc
+  tests/test_hits_writer.cc
   tests/test_digests.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
 target_compile_definitions(vikshep-tests PRIVATE
+  VIKSHEP_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden"
   VIKSHEP_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/docs/examples"
   VIKSHEP_SIM_EXE="$<TARGET_FILE:vikshep-sim>"
 )
@@ -116,6 +119,12 @@ add_test(NAME random_draws_independent_of_threads
           $<TARGET_FILE:random-gun-probe>
 )
 set_tests_properties(random_draws_independent_of_threads PROPERTIES SKIP_RETURN_CODE 77)
+
+# The golden hits files, read with pyarrow and hashlib (independent of the C++ writer).
+add_test(NAME golden_hits_files_valid
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_golden.py
+          ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden
+)
 
 add_test(NAME schema_matches_validator
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_schema.py
