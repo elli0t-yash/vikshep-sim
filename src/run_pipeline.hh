@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 
 #include "dev_run.hh"
+#include "errors.hh"
 #include "hits_writer.hh"
 
 // The whole pipeline from a validated spec to an output folder (docs/SIDECAR.md,
@@ -15,24 +16,20 @@
 // atomically. `vikshep-sim dev-run --out` calls it today; the `run` command will call
 // the same function.
 
-// A failure with a stable code from docs/SIDECAR.md, section 4.
-class OutputError : public std::runtime_error {
- public:
-  OutputError(std::string code, const std::string& message)
-      : std::runtime_error(message), code_(std::move(code))
-  {
-  }
-  const std::string& code() const { return code_; }
-
- private:
-  std::string code_;
-};
+using OutputError = CodedError;
 
 struct PipelineOptions {
   int threads = 1;
   // Also receives every event's hits, in event order (for example the experimental
   // digests). May be empty.
   EventConsumer extra_consumer;
+  // Called with (0, total) when the simulation is about to start, and with (n, total) each
+  // time the n-th event has been written, in event order. May be empty.
+  std::function<void(std::uint64_t done, std::uint64_t total)> on_progress;
+  // Polled during the run (see CancelCheck). If it returns true before the output is moved
+  // into place, the run stops, nothing is left behind and CodedError("CANCELLED") is thrown.
+  // May be empty.
+  CancelCheck cancel;
   // Test only: rows per record batch of hits.arrow. The default is the one of HITS.md.
   std::size_t batch_rows = HitsWriter::kDefaultBatchRows;
 };
@@ -51,7 +48,9 @@ struct PipelineResult {
 // The output is written to a temporary folder next to out_dir
 // (".<name>.partial-<process id>") and renamed to out_dir when everything is complete.
 // If anything fails, the temporary folder is removed and out_dir does not exist.
-// Throws OutputError with code OUTPUT_EXISTS or OUTPUT_NOT_WRITABLE, or
-// std::runtime_error for any other failure.
+// Order of checks, before anything is created: the target (OUTPUT_EXISTS), then the Geant4
+// data sets the physics list needs (DATASETS_MISSING). Throws CodedError (OutputError) with
+// code OUTPUT_EXISTS, DATASETS_MISSING, OUTPUT_NOT_WRITABLE or CANCELLED; WriteError,
+// GeometryError, IntegrityError (errors.hh) or std::runtime_error for other failures.
 PipelineResult run_to_folder(const nlohmann::json& spec, const std::string& out_dir,
                              const PipelineOptions& options);

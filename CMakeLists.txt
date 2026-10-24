@@ -121,6 +121,7 @@ add_executable(vikshep-tests
   tests/test_plot.cc
   tests/test_atomic_rename.cc
   tests/test_channel.cc
+  tests/test_progress.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
 target_compile_definitions(vikshep-tests PRIVATE
@@ -164,6 +165,15 @@ add_test(NAME golden_hits_files_valid
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_golden.py
           ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden
 )
+
+# Cancellation of `run` by SIGTERM and SIGINT, with the cancel latency (skipped, exit 77,
+# when the Geant4 data sets are missing).
+add_test(NAME run_cancellation_by_signal
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cancel.py
+          $<TARGET_FILE:vikshep-sim>
+          ${CMAKE_CURRENT_SOURCE_DIR}/tests/long_run_spec.json
+)
+set_tests_properties(run_cancellation_by_signal PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 add_test(NAME schema_matches_validator
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_schema.py

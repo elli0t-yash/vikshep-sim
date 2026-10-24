@@ -73,6 +73,13 @@ PipelineResult run_to_folder(const json& user_spec, const std::string& out_dir,
     throw OutputError("OUTPUT_EXISTS", "the parent of the output folder does not exist");
   }
 
+  // --- the Geant4 data sets the physics list needs, checked before anything is created
+  const auto missing_sets =
+      find_missing_data_sets(required_data_sets(spec.at("physics").at("list").get<std::string>()));
+  if (!missing_sets.empty()) {
+    throw OutputError("DATASETS_MISSING", describe_missing(missing_sets));
+  }
+
   // --- the temporary folder, next to the target so that the rename stays on one file system
   const fs::path temp =
       parent / ("." + target.filename().string() + ".partial-" + std::to_string(::getpid()));
@@ -101,7 +108,20 @@ PipelineResult run_to_folder(const json& user_spec, const std::string& out_dir,
       options.extra_consumer(std::move(event));
     }
   };
-  result.table = run_dev_simulation(spec, options.threads, consumer);
+  const std::uint64_t total = static_cast<std::uint64_t>(spec.at("events").get<std::int64_t>());
+  const EventConsumer reporting_consumer = [&](EventHits&& event) {
+    consumer(std::move(event));
+    if (options.on_progress) {
+      options.on_progress(completed, total);
+    }
+  };
+  if (options.on_progress) {
+    options.on_progress(0, total);
+  }
+  result.table = run_dev_simulation(spec, options.threads, reporting_consumer, nullptr, options.cancel);
+  if (options.cancel && options.cancel()) {
+    throw OutputError("CANCELLED", "the run was cancelled");  // the guard removes the temporary folder
+  }
   result.hits_file = writer.finish();
   result.oid = result.hits_file.oid;
 
@@ -126,6 +146,11 @@ PipelineResult run_to_folder(const json& user_spec, const std::string& out_dir,
   summary.threads = options.threads;
   summary.wall_time_s = result.wall_time_s;
   write_text_file(temp / "run_summary.json", to_file_text(make_run_summary(summary)));
+
+  // A cancellation that came during the last steps still counts: nothing is in place yet.
+  if (options.cancel && options.cancel()) {
+    throw OutputError("CANCELLED", "the run was cancelled");
+  }
 
   // --- into place. The rename fails if the target exists (an atomic no-overwrite call
   // where the operating system has one, see atomic_rename.hh), so another writer's folder
