@@ -10,10 +10,9 @@ into another repository; it refers to sibling documents only by file name
 
 Words MUST, SHOULD and MAY are used in the usual sense.
 
-Implementation status: at the time of writing only `info` exists. `run` is a
-stub that prints "not implemented (milestone Y3)" to stderr and exits with code
-2. That stub is outside this contract; the contract for `run` applies from the
-milestone that implements it.
+Implementation status: `info`, `validate` and `run` implement this contract.
+`dev-run` (experimental) is outside it. The `datasets` command is a stub that exits
+with code 2. Windows is specified but not built or tested (Decision S11).
 
 ## 1. Commands
 
@@ -82,15 +81,25 @@ Checks a spec without running a simulation (rules: SPEC.md).
   `errors` array, nothing else.
 - Human-readable text goes to stderr.
 
-### 1.3 `vikshep-sim run --spec <file> --out <dir> [--progress jsonl]`
+### 1.3 `vikshep-sim run --spec <file> --out <dir> [--threads N] [--progress jsonl]`
 
 | Option | Meaning |
 |--------|---------|
 | `--spec <file>` | path to the JSON spec (simspec). Required. |
 | `--out <dir>` | the output folder to create. Required. It MUST NOT exist; its parent MUST exist. |
-| `--progress jsonl` | write machine-readable events to stdout (section 2). Default is `none`: stdout stays empty. |
+| `--threads N` | worker threads, a positive integer. Default **1**. It never changes the output: the same spec and seed give the same `hits.arrow` and OID for any N (HITS.md, section 4). |
+| `--progress jsonl` | write machine-readable events to stdout (section 2). Default is `none`: stdout stays empty, in success and in failure; the exit code and stderr tell what happened. |
 
 Reading the spec from stdin is not supported in v1.
+
+Mistakes in the command line itself (an unknown option, a missing `--spec`, a bad
+`--progress` value) are found before `run` starts. They are reported on stderr only,
+with exit code 2; stdout stays empty, because the progress mode may not be known.
+
+Order of checks, before any output exists: the spec is validated in full (exit 2);
+then `--out` (exists, or its parent does not: `OUTPUT_EXISTS`, exit 2); then the Geant4
+data sets the physics list needs (`DATASETS_MISSING`, exit 3). Only then is the temporary
+folder created and the first progress line written.
 
 ## 2. stdout and stderr
 
@@ -101,6 +110,14 @@ Reading the spec from stdin is not supported in v1.
   Geant4 output: the implementation MUST redirect Geant4's own output stream
   (`G4cout`, banners and warnings) to stderr, because Geant4 writes to stdout by
   default.
+- How `run` guarantees this: at startup it duplicates file descriptor 1 into a private
+  channel that only the progress/done/error writer uses, points descriptor 1 at stderr
+  (so printf, puts and any library write to descriptor 1 go to stderr), points
+  `std::cout` at stderr's buffer (Geant4 library code in worker threads writes to
+  `std::cout` directly, one stray line per worker thread, bypassing `G4cout`), and routes
+  `G4cout` and `G4cerr` to stderr. All lines are written from one function, one `write`
+  per line, under a lock, so lines never interleave. If the reader of stdout goes away,
+  further lines are dropped and the run is cancelled (exit 4).
 - The app MUST NOT parse stderr. Its text is not stable.
 
 ### 2.1 Events
@@ -297,6 +314,14 @@ next to its own output paths.
   in jsonl mode; exits **4**.
 - If the output folder has already been renamed into place when the signal
   arrives, the run is complete: it emits `done` and exits 0.
+- How: the first SIGTERM or SIGINT sets an async-signal-safe flag. The simulation uses
+  Geant4's soft abort: after each event, each worker thread checks the flag and, if it is
+  set, tells its run manager to finish the current event and start no other. So the
+  cancellation latency is about the time of one event (measured: about 30 ms in a run of
+  5 GeV electrons with 2 threads, STATUS.md). A signal that arrives while Geant4 is still
+  initialising (about a second and a half for this geometry) is acted on when
+  initialisation ends; the run is not started. The same flag is set when stdout cannot be
+  written any more.
 - A second signal while shutting down: exit 4 at once without further output
   (Decision S4). A temporary folder MAY then remain.
 
@@ -342,11 +367,12 @@ The app MUST NOT:
 | S1 | Progress cadence | At most every 250 ms; first line at done = 0; final line always | Fixed event-count steps |
 | S2 | Exit code 2 | Bad usage or invalid spec; the Y1 "not implemented" stub is replaced when `run` exists | Keep 2 for not implemented and move usage to another code |
 | S3 | Extra keys in `info --json` | Add `contract_version`, `spec_versions`, `hits_schema_versions` (accepted; emitted since the spec milestone) | Only `contract_version` |
-| S4 | Second signal | Exit 4 immediately, temp folder may remain | Ignore further signals |
+| S4 | Second signal | Decided: exit 4 immediately (from the signal handler), no output, temp folder may remain | Ignore further signals |
 | S5 | provenance.json | Deterministic, guaranteed keys as in 5.1 | Fold into run_summary.json |
 | S6 | Error line extension | Extra `errors` array of {pointer, message, missing?} on SPEC_INVALID (`missing` added in the calorimeter milestone) | One error line per problem |
 | S7 | `--out` handling | Must not exist; parent must exist | Allow an existing empty folder |
-| S8 | Default of `--progress` | `none` (stdout empty) | `jsonl` always |
+| S8 | Default of `--progress` | Decided: `none` (stdout empty) | `jsonl` always |
 | S9 | Sources of the spec | `--spec <file>` only | Also `-` for stdin |
-| S10 | SIGINT | Treated like SIGTERM | Not handled |
+| S10 | SIGINT | Decided: treated like SIGTERM | Not handled |
+| S12 | Default of `--threads` | 1 (added with the `run` command) | The number of cores |
 | S11 | Windows | Specified, not built or tested | Drop from the contract until built |
