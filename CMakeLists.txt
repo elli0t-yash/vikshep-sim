@@ -103,7 +103,22 @@ target_link_libraries(vikshep-sim PRIVATE vikshep_core)
 # Tests: ctest --test-dir build --output-on-failure
 enable_testing()
 find_package(Catch2 3 REQUIRED)
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
+# The tests use pyarrow, jsonschema and matplotlib, which are in the conda environment: use
+# its Python, not another one on the machine. (FindPython3 picked a system Python of the
+# same version in a fresh environment, so the interpreter is looked up here first.)
+set(VIKSHEP_PYTHON_HINTS "")
+if(DEFINED ENV{CONDA_PREFIX})
+  list(APPEND VIKSHEP_PYTHON_HINTS "$ENV{CONDA_PREFIX}/bin")
+endif()
+foreach(_prefix IN LISTS CMAKE_PREFIX_PATH)
+  list(APPEND VIKSHEP_PYTHON_HINTS "${_prefix}/bin")
+endforeach()
+find_program(VIKSHEP_PYTHON NAMES python3 python HINTS ${VIKSHEP_PYTHON_HINTS} NO_DEFAULT_PATH)
+if(NOT VIKSHEP_PYTHON)
+  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+  set(VIKSHEP_PYTHON "${Python3_EXECUTABLE}" CACHE FILEPATH "Python for the tests" FORCE)
+endif()
+message(STATUS "Python for the tests: ${VIKSHEP_PYTHON}")
 include(Catch)
 
 add_executable(vikshep-tests
@@ -128,7 +143,7 @@ add_executable(vikshep-tests
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
 target_compile_definitions(vikshep-tests PRIVATE
   VIKSHEP_CHANNEL_PROBE="$<TARGET_FILE:channel-probe>"
-  VIKSHEP_PYTHON="${Python3_EXECUTABLE}"
+  VIKSHEP_PYTHON="${VIKSHEP_PYTHON}"
   VIKSHEP_TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests"
   VIKSHEP_SCRIPTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/scripts"
   VIKSHEP_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden"
@@ -157,21 +172,21 @@ target_compile_definitions(random-gun-probe PRIVATE
   VIKSHEP_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/docs/examples"
 )
 add_test(NAME random_draws_independent_of_threads
-  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_random_gun.py
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_random_gun.py
           $<TARGET_FILE:random-gun-probe>
 )
 set_tests_properties(random_draws_independent_of_threads PROPERTIES SKIP_RETURN_CODE 77)
 
 # The golden hits files, read with pyarrow and hashlib (independent of the C++ writer).
 add_test(NAME golden_hits_files_valid
-  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_golden.py
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_golden.py
           ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden
 )
 
 # Cancellation of `run` by SIGTERM and SIGINT, with the cancel latency (skipped, exit 77,
 # when the Geant4 data sets are missing).
 add_test(NAME run_cancellation_by_signal
-  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cancel.py
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cancel.py
           $<TARGET_FILE:vikshep-sim>
           ${CMAKE_CURRENT_SOURCE_DIR}/tests/long_run_spec.json
 )
@@ -180,7 +195,7 @@ set_tests_properties(run_cancellation_by_signal PROPERTIES SKIP_RETURN_CODE 77 T
 # The stdout of `run --progress jsonl`: purity, shape, order and cadence, for 1 and 4 threads.
 foreach(_threads 1 4)
   add_test(NAME run_stdout_stream_${_threads}_threads
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_run_stream.py
+    COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_run_stream.py
             $<TARGET_FILE:vikshep-sim>
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/stream_spec.json ${_threads}
   )
@@ -188,7 +203,7 @@ foreach(_threads 1 4)
 endforeach()
 
 add_test(NAME schema_matches_validator
-  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_schema.py
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_schema.py
           $<TARGET_FILE:vikshep-sim>
           ${CMAKE_CURRENT_SOURCE_DIR}/docs/spec.schema.json
           ${CMAKE_CURRENT_SOURCE_DIR}/docs/examples
