@@ -74,6 +74,7 @@ add_library(vikshep_core STATIC
   src/atomic_rename.cc
   src/build_info.cc
   src/cancellation.cc
+  src/failure.cc
   src/hits_writer.cc
   src/run_outputs.cc
   src/run_pipeline.cc
@@ -122,6 +123,7 @@ add_executable(vikshep-tests
   tests/test_atomic_rename.cc
   tests/test_channel.cc
   tests/test_progress.cc
+  tests/test_run.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
 target_compile_definitions(vikshep-tests PRIVATE
@@ -174,6 +176,16 @@ add_test(NAME run_cancellation_by_signal
           ${CMAKE_CURRENT_SOURCE_DIR}/tests/long_run_spec.json
 )
 set_tests_properties(run_cancellation_by_signal PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+# The stdout of `run --progress jsonl`: purity, shape, order and cadence, for 1 and 4 threads.
+foreach(_threads 1 4)
+  add_test(NAME run_stdout_stream_${_threads}_threads
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_run_stream.py
+            $<TARGET_FILE:vikshep-sim>
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/stream_spec.json ${_threads}
+  )
+  set_tests_properties(run_stdout_stream_${_threads}_threads PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+endforeach()
 
 add_test(NAME schema_matches_validator
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_schema.py
