@@ -28,3 +28,24 @@ std::vector<DataSet> find_missing_data_sets(const std::vector<DataSet>& required
 
 // Text that says what is missing and how to install it.
 std::string describe_missing(const std::vector<DataSet>& missing);
+
+// What provenance.json records about one data set (docs/HITS.md, section 6).
+struct DataSetRecord {
+  std::string env_var;        // for example "G4LEDATA"
+  std::string directory;      // base name of the data directory, for example "EMLOW8.8"
+  std::string conda_package;  // for example "geant4-data-emlow", or "unknown"
+  std::string conda_version;  // for example "8.8.0", or "unknown"
+  std::string conda_build;    // for example "hd8ed1ab_0", or "unknown"
+};
+
+// One record per required data set, sorted by environment variable name.
+//
+// The directory name carries the data set version (EMLOW8.8) and is what Geant4 reads.
+// The conda record is looked up as follows: the data directory is
+// <prefix>/share/Geant4/data/<name>, so <prefix> is four levels up; the conda metadata
+// of the package is <prefix>/conda-meta/<package>-<version>-<build>.json, and the
+// version and build are read from that file NAME (the file is not opened). If the
+// directory is not laid out like that or no such file exists, the three conda fields
+// are "unknown"; that is not an error.
+std::vector<DataSetRecord> describe_data_sets(const std::vector<DataSet>& required,
+                                              const GetEnv& get_env = process_getenv);

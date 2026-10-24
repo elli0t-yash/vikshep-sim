@@ -51,7 +51,9 @@ add_library(vikshep_core STATIC
   src/dev_run.cc
   src/event_digest.cc
   src/event_seed.cc
+  src/build_info.cc
   src/hits_writer.cc
+  src/run_outputs.cc
   src/sha3_256.cc
   src/spec_file.cc
   src/spec_validate.cc
@@ -89,6 +91,7 @@ add_executable(vikshep-tests
   tests/test_vendored.cc
   tests/test_sha3.cc
   tests/test_hits_writer.cc
+  tests/test_run_outputs.cc
   tests/test_digests.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
