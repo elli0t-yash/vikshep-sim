@@ -31,7 +31,8 @@ Words MUST and MAY are used in the usual sense.
 ## 2. Fields
 
 Required means the field MUST be present. A missing required field is reported
-against its parent object (SIDECAR.md, section 6).
+against its parent object (SIDECAR.md, section 6), and the report names the
+field in an extra key `missing`.
 
 ### 2.1 Top level
 
@@ -56,6 +57,14 @@ centred on the origin, so its total length is
 `z = -length/2` to `z = +length/2` (HITS.md, section 5.1). Slabs are placed
 with copy number = layer index (0-based), and the `layer` column of hits.arrow
 is the same index. The physical volumes are named `absorber` and `active`.
+Layer 0 is at the front (the most negative z).
+
+**World.** The stack sits in a box of `G4_Galactic` centred on the origin. Its
+side in x and y is `transverse_mm + 200` mm and its length in z is
+`stack_length + 200` mm, so there are 100 mm of vacuum around the stack on every
+side. The gun start point MUST lie strictly inside this box (a point on its
+surface is outside). Example: for the worked example below the world is
+300 mm by 300 mm by 350 mm, spanning |x|, |y| < 150 mm and |z| < 175 mm.
 
 | Field | Type | Required | Default | Valid values | Why it exists |
 |-------|------|----------|---------|--------------|---------------|
@@ -77,13 +86,8 @@ Each of `absorber` and `active`:
 |-------|------|----------|---------|--------------|---------------|
 | particle | string | yes | none | one of `e-`, `e+`, `gamma`, `mu-`, `mu+`, `pi-`, `pi+`, `proton`, `neutron`, `kaon+`, `kaon-` | A fixed list of beam particles that the project tests. Geant4 has many more; they are not accepted in v1. |
 | energy_GeV | number | yes | none | greater than 0 and at most 10000 | Kinetic energy of each primary, in GeV. |
-| position_mm | array of 3 numbers | no | `[0, 0, -20]` | any finite numbers | Start point `[x, y, z]` in mm, in the global frame of HITS.md. |
+| position_mm | array of 3 numbers | no | `[0, 0, -(stack_length/2 + 10)]` | finite numbers, strictly inside the world (2.2) | Start point `[x, y, z]` in mm, in the global frame of HITS.md. The default is on the z axis, 10 mm in front of the stack, so it follows the geometry. |
 | direction | array of 3 numbers | no | `[0, 0, 1]` | finite, not all zero | Direction `[x, y, z]`. It is a direction, so it is unit-less. The tool normalises it to length 1. |
-
-Note: the stack is centred on the origin, so the default start point
-`[0, 0, -20]` is outside the stack only if its total length is below 40 mm.
-Set `position_mm` explicitly to start upstream of a thicker stack
-(Decision P1).
 
 ### 2.4 physics
 
@@ -105,9 +109,12 @@ simulation and without initialising a Geant4 run.
 - Material, physics list and particle names are checked against what the
   installed Geant4 offers (materials, physics lists) and the fixed list above
   (particles). These checks need no Geant4 data sets.
-- Not checked in v1 and left to the run: whether the gun start point is inside
-  the simulated world, and whether the Geant4 data sets needed by the physics
-  list are installed (`DATASETS_MISSING`, exit 3).
+- The gun start point is checked against the world of 2.2 (pointer
+  `/gun/position_mm`). It is skipped while the geometry itself is invalid,
+  because the world is then unknown.
+- Not checked by `validate`: whether the Geant4 data sets needed by the physics
+  list are installed. `run` and `dev-run` check that before starting
+  (`DATASETS_MISSING`, exit 3).
 - If `spec_version` is a string that is not supported, the result is a single
   `SPEC_VERSION_UNSUPPORTED` error and nothing else is checked, because the
   rules of another version are unknown.
@@ -160,19 +167,20 @@ validated.
 
 Ten layers of 10 mm lead and 5 mm liquid argon give a 150 mm stack, 100 mm
 across, spanning `z = -75` to `z = +75` mm. A 5 GeV electron is fired along +z
-from the default start point `[0, 0, -20]` with the default physics list
+from the default start point `[0, 0, -85]` (10 mm in front of the stack, whose
+front face is at `z = -75`) with the default physics list
 `FTFP_BERT`; only the argon slabs record hits. 20 events are simulated with seed
 42. With the defaults written out, the canonical form is:
 
 ```json
-{"events":20,"geometry":{"absorber":{"material":"G4_Pb","thickness_mm":10},"active":{"material":"G4_lAr","thickness_mm":5},"layers":10,"transverse_mm":100},"gun":{"direction":[0,0,1],"energy_GeV":5,"particle":"e-","position_mm":[0,0,-20]},"physics":{"list":"FTFP_BERT"},"seed":42,"sensitive":["active"],"spec_version":"1.0","template":"layered_calorimeter"}
+{"events":20,"geometry":{"absorber":{"material":"G4_Pb","thickness_mm":10},"active":{"material":"G4_lAr","thickness_mm":5},"layers":10,"transverse_mm":100},"gun":{"direction":[0,0,1],"energy_GeV":5,"particle":"e-","position_mm":[0,0,-85]},"physics":{"list":"FTFP_BERT"},"seed":42,"sensitive":["active"],"spec_version":"1.0","template":"layered_calorimeter"}
 ```
 
 An invalid spec, for example `"thickness_mm": 0` in `absorber` and a misspelt
 `"thickness"` in `active`, gives exit code 2 and, on stdout, one line:
 
 ```json
-{"code":"SPEC_INVALID","errors":[{"message":"must be greater than 0","pointer":"/geometry/absorber/thickness_mm"},{"message":"missing required field 'thickness_mm'","pointer":"/geometry/active"},{"message":"unknown field; did you mean 'thickness_mm'?","pointer":"/geometry/active/thickness"}],"event":"error","message":"3 problems in spec"}
+{"code":"SPEC_INVALID","errors":[{"message":"must be greater than 0","pointer":"/geometry/absorber/thickness_mm"},{"message":"missing required field 'thickness_mm'","missing":"thickness_mm","pointer":"/geometry/active"},{"message":"unknown field; did you mean 'thickness_mm'?","pointer":"/geometry/active/thickness"}],"event":"error","message":"3 problems in spec"}
 ```
 
 (The order of the entries follows section 3.)
@@ -181,10 +189,10 @@ An invalid spec, for example `"thickness_mm": 0` in `absorber` and a misspelt
 
 | ID | Decision | Proposed default | Alternative |
 |----|----------|------------------|-------------|
-| P1 | Stack position vs default gun start | Stack centred on the origin (as HITS.md says); default start `[0,0,-20]` is then inside any stack longer than 40 mm | Put the front face of the stack at z = 0 (so the default is 20 mm upstream) and amend HITS.md section 5.1 |
+| P1 | Stack position vs default gun start | Decided: stack centred on the origin; default start is derived, `[0, 0, -(stack_length/2 + 10)]` | (was: fixed default `[0,0,-20]`) |
 | P2 | Required fields | `geometry`, `gun.particle`, `gun.energy_GeV`, `events` and `seed` are required; `physics`, `sensitive`, `gun.position_mm`, `gun.direction` are optional | Give `seed` a default |
 | P3 | Layer order | Absorber then active within each layer, in +z | Active first |
 | P4 | Volume names | `absorber` and `active` | Names with a prefix, for example `lc_absorber` |
-| P5 | Missing field pointer | Points to the parent object (as SIDECAR.md) | Point to the missing field |
+| P5 | Missing field pointer | Decided: parent object pointer plus a `missing` key naming the field | Point to the missing field |
 | P6 | Integer-valued numbers | `42.0` is accepted where an integer is required | Reject non-integer notation |
 | P7 | Physics list EM suffix | Accepted when G4PhysListFactory accepts it | Plain list names only |

@@ -2,8 +2,9 @@
 """Checks docs/spec.schema.json against the C++ validator.
 
 For every spec below, the JSON Schema and `vikshep-sim validate` must agree,
-except for the cases that depend on names from the installed Geant4, which the
-schema cannot know: the schema accepts them, the validator rejects them.
+except for the cases that depend on names from the installed Geant4 or on the
+world size, which the schema cannot express: the schema accepts them, the
+validator rejects them.
 
 Usage: check_schema.py <vikshep-sim> <schema.json> <examples dir>
 """
@@ -41,13 +42,14 @@ def edit(spec, pointer, value):
 
 
 # (name, spec, expected) where expected is "valid", "invalid" (both reject) or
-# "catalogue" (schema accepts, validator rejects: needs Geant4 names).
+# "catalogue" (schema accepts, validator rejects: needs Geant4 names or the
+# world size, which the schema cannot express).
 cases = [("example", base, "valid")]
 for f in sorted(examples_dir.glob("*.json")):
     cases.append((f.name, json.loads(f.read_text()), "valid"))
 
 valid_edits = [
-    ("explicit defaults", [("/gun/position_mm", [0, 0, -20]), ("/gun/direction", [0, 0, 1]),
+    ("explicit defaults", [("/gun/position_mm", [0, 0, -85]), ("/gun/direction", [0, 0, 1]),
                            ("/physics", {"list": "FTFP_BERT"}), ("/sensitive", ["active"])]),
     ("both sensitive", [("/sensitive", ["absorber", "active"])]),
     ("empty physics", [("/physics", {})]),
@@ -58,7 +60,7 @@ valid_edits = [
     ("max seed", [("/seed", 9007199254740991)]),
     ("tiny thickness", [("/geometry/active/thickness_mm", 1e-9)]),
     ("unnormalised direction", [("/gun/direction", [0, 3, 4])]),
-    ("negative position", [("/gun/position_mm", [-1, -2, -300])]),
+    ("negative position", [("/gun/position_mm", [-1, -2, -170])]),
     ("other particle", [("/gun/particle", "kaon+")]),
 ]
 for name, edits in valid_edits:
@@ -123,6 +125,10 @@ for name, pointer, value in invalid_edits:
 
 cases.append(("root array", [], "invalid"))
 cases.append(("bad material", edit(base, "/geometry/absorber/material", "G4_Pbb"), "catalogue"))
+cases.append(("gun outside world z", edit(base, "/gun/position_mm", [0, 0, -1000]), "catalogue"))
+cases.append(("gun outside world x", edit(base, "/gun/position_mm", [150, 0, 0]), "catalogue"))
+cases.append(("gun on world boundary", edit(base, "/gun/position_mm", [0, 0, 175]), "catalogue"))
+cases.append(("gun inside world", edit(base, "/gun/position_mm", [149, -149, 174]), "valid"))
 cases.append(("bad physics list", edit(base, "/physics/list", "NOT_A_LIST"), "catalogue"))
 
 failures = []

@@ -11,6 +11,7 @@ int main(int argc, char** argv)
   int exit_code = kExitOk;
   register_info(app, exit_code);
   register_validate(app, exit_code);
+  register_dev_run(app, exit_code);
   register_run(app, exit_code);
   register_datasets(app, exit_code);
 

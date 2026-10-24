@@ -74,6 +74,133 @@ See the table at the end of docs/SPEC.md (P1 to P7). Most important:
 - P2: required fields are geometry, gun.particle, gun.energy_GeV, events, seed
   (spec_version and template as specified). seed has no default.
 
+## Milestone Y4: the calorimeter in Geant4 (no hits file yet)
+
+- [x] Decisions 0a-0c: derived gun default, world box and gun-in-world check, `missing` key in errors
+- [x] Geometry (src/dev_run.cc): world of G4_Galactic, stack centred at the origin, layer 0 at the
+      front, absorber then active per layer, logical volumes `absorber` and `active`, copy_no =
+      layer index, materials from G4NistManager. Nothing printed to stdout.
+- [x] Physics list from G4PhysListFactory; G4ParticleGun per thread from the spec; run manager
+      through G4RunManagerFactory with `--threads` (default 1)
+- [x] Geant4 data set check before running: DATASETS_MISSING, exit 3 (src/datasets_check.cc)
+- [x] `vikshep-sim dev-run --spec <file> [--threads N]`: EXPERIMENTAL, outside the sidecar
+      contract, to be replaced by `run`
+- [x] Comparison with Geant4 example B4a (below)
+- [x] Tests: data set check, dev-run CLI, physics sanity run (own executable), gun-in-world and
+      missing-key validator tests; ctest 52 of 52 passed on macOS arm64 (2026-10-23)
+- [ ] hits.arrow, provenance.json, run_summary.json, `run` (next prompts)
+
+### Run manager and production cut (for provenance later)
+
+- Run manager type: `G4RunManagerType::MTOnly`, i.e. G4MTRunManager, chosen explicitly for any
+  thread count including 1. Not the serial manager (serial and multithreaded runs seed events
+  differently, so threads=1 would otherwise differ from threads=N). Not "Default" (that is
+  tasking, or whatever G4RUN_MANAGER_TYPE says).
+- Default production cut in effect: 0.7 mm (read from the physics list, FTFP_BERT). It is the
+  Geant4 default; the spec has no field to change it.
+- The master random engine is seeded from the spec's `seed`; Geant4 then seeds each event from
+  the master. Observed on 2026-10-23: the example spec printed identical tables with 1 and with 4
+  threads, and identical output on repeated runs. This is an observation, not a guarantee; how
+  events are seeded is the B4 question in docs/notes-B4.md and is not answered here.
+- Geant4 output: `G4cout` goes to stderr through a G4UIsession, and file descriptor 1 is also
+  redirected to stderr for the duration of the run, because a cross-section table line reached
+  stdout without passing through `G4cout`. Verified: stdout of dev-run holds only the table, with
+  1 and 4 threads.
+
+### Geant4 data sets (findings, 2026-10-23)
+
+- How they arrive: the conda-forge `geant4` package depends on one conda package per data set
+  (12 `geant4-data-*` packages here). They are installed under
+  `$CONDA_PREFIX/share/Geant4/data` and activating the environment sets one variable per data set
+  (G4LEDATA, G4PARTICLEXSDATA, G4ENSDFSTATEDATA, G4LEVELGAMMADATA, G4RADIOACTIVEDATA,
+  G4NEUTRONHPDATA, G4PIIDATA, G4SAIDXSDATA, G4ABLADATA, G4INCLDATA, G4REALSURFACEDATA,
+  G4CHANNELINGDATA).
+- Present in this environment: yes, all 12. Nothing was downloaded (so the 5 GB question did not
+  arise). No data is stored in the repository.
+- Experiment (macOS arm64, FTFP_BERT, example spec): with a variable pointing at an empty
+  directory, the run aborts (exit 134, G4Exception) for G4LEDATA (em0003), G4PARTICLEXSDATA
+  (had014) and G4ENSDFSTATEDATA (PART70001). For G4LEVELGAMMADATA, G4SAIDXSDATA, G4PIIDATA and
+  G4RADIOACTIVEDATA the run completed normally, also with 200 protons of 5 GeV; the unset
+  G4NEUTRONHPDATA, G4ABLADATA and G4INCLDATA also did not matter for FTFP_BERT.
+- What the check requires: G4EMLOW, G4PARTICLEXS, G4ENSDFSTATE and PhotonEvaporation for every
+  list, plus G4NDL for names containing "HP" or "LEND", plus G4INCL and G4ABLA for "INCLXX".
+  PhotonEvaporation is kept in the list because Geant4 documents it for hadronic physics, although
+  the runs above did not need it: UNCLEAR whether FTFP_BERT can need it in rarer events.
+  Whether SAID, PII and RadioactiveDecay are needed by other lists: UNCLEAR (not tested).
+- Missing data sets give code DATASETS_MISSING, exit 3, and a message naming the data set, the
+  variable and the `micromamba install` command. Setup steps are in README.md.
+
+### Comparison with Geant4 example B4a (v11.4.3 source, 2026-10-23)
+
+Setup: 1 GeV e-, 1000 events, FTFP_BERT, 10 layers of 10 mm Pb + 5 mm liquid argon, 100 mm wide,
+4 threads each. B4a built unmodified from ~/geant4-src (sparse clone of tag v11.4.3, outside this
+repository), per-event values read from its ntuple (B4.root). Ours: `dev-run` with seed 42.
+Mean energy deposited per event, MeV, +- standard error of the mean (1000 events):
+
+| Quantity | B4a | vikshep-sim | Difference (ours - B4a) | In sigma |
+|----------|-----|-------------|-------------------------|----------|
+| absorber (Pb) | 904.075 +- 0.884 | 904.731 +- 0.694 | +0.656 +- 1.124 | 0.6 |
+| gap / active (lAr) | 48.773 +- 0.316 | 48.858 +- 0.325 | +0.085 +- 0.453 | 0.2 |
+| total | 952.849 +- 0.862 | 953.589 +- 0.647 | +0.740 +- 1.078 | 0.7 |
+
+The two agree within statistical error. Differences between the setups, all left as they are
+(our code was not adjusted):
+
+- Liquid argon: B4 defines its own material, Z = 18, A = 39.95 g/mole, density 1.390 g/cm3
+  (radiation length 140.6 mm); ours is G4_lAr from the NIST manager, density 1.396 g/cm3
+  (radiation length 140.0 mm). Same mean excitation energy, 188 eV. The 0.4 % density difference
+  is far below the statistical error of the gap value.
+- World: B4 is 1.2 times the calorimeter (120 mm x 120 mm x 180 mm); ours is 300 mm x 300 mm x 350 mm.
+  Both are vacuum, so this only matters for particles that leave the calorimeter.
+- Gun position: B4 starts at z = -90 mm, the edge of its world (15 mm in front of the stack); ours
+  at z = -85 mm (10 mm in front). Both in vacuum.
+- Vacuum: B4 builds its own "Galactic" (Z = 1, A = 1.01 g/mole, universe mean density); ours is
+  G4_Galactic (1e-25 g/cm3).
+- Random seed: B4 uses Geant4's default seed, ours 42, so the samples are independent.
+- Run manager: B4 uses the factory default; ours is G4MTRunManager (section above).
+- Layers: B4 uses a replica of one layer volume, ours places each slab separately. Same positions
+  (absorber first, then gap, per layer).
+- Scoring: B4 sums energy in the stepping action by physical volume; ours uses a sensitive detector
+  on each slab type. Both sum G4Step::GetTotalEnergyDeposit.
+- B4a's printed histogram means exclude overflow (its histograms end at 330 MeV and 30 MeV), so
+  the printed EAbs/EGap lines are not usable at 1 GeV; the ntuple was used instead.
+
+### Physics sanity test threshold
+
+tests/test_dev_run.cc runs 20 events of 1 GeV e- and requires: every event's total deposit > 0 and
+<= the incident energy (tiny rounding allowance), mean contained fraction > 0.8, and more energy
+in the absorber than in the active slabs. Measured mean fractions for seeds 1 to 6 (20 events
+each, 2026-10-23): 0.953, 0.959, 0.958, 0.947, 0.940, 0.953 (standard errors 0.003 to 0.016), and
+0.954 +- 0.001 for the 1000-event run. 0.8 is about 0.14 below the lowest measurement, loose
+enough not to fail on a statistical fluctuation, tight enough to fail if the stack were missing or
+mostly vacuum. When data sets are missing the test is reported as skipped, with a message.
+
+### Contract changes in this milestone
+
+- SPEC.md: the default `gun.position_mm` is derived, [0, 0, -(stack_length/2 + 10)] mm (was fixed
+  [0, 0, -20]). The canonical form of a spec without a position therefore changes (the example now
+  canonicalises with z = -85), and so does any hash of it.
+- SPEC.md and validator: the world box is defined (transverse_mm + 200 mm, stack_length + 200 mm,
+  G4_Galactic); the gun start must lie strictly inside it (pointer /gun/position_mm). Decision P1
+  is resolved in favour of a centred stack with a derived default.
+- SIDECAR.md and validator: a missing-field error keeps the parent pointer and gains a `missing` key
+  naming the field. Changes the shape of `errors` entries (additive).
+- HITS.md section 5.1: coordinate frame of the layered_calorimeter template added (centred stack,
+  layer 0 at the front, absorber first).
+- spec.schema.json: the position default annotation was removed; the gun-in-world rule cannot be
+  expressed in JSON Schema and is checked by the validator only.
+- Not a contract change but worth knowing: command-line usage errors exit 2 (since the previous
+  milestone); `dev-run` exit codes are 0, 1, 2, 3 as in SIDECAR.md.
+
+### Open at the end of Y4 (UNCLEAR)
+
+- Linux has not been built or run: dev-run, the data set check and all tests are verified on macOS
+  arm64 only. CI will be the first Linux run.
+- The data set requirement table is partly empirical (see above).
+- Thread-count independence of event seeding (docs/notes-B4.md) is observed, not understood.
+- dev-run keeps all per-event energies in memory (events x 2 x layers doubles); fine for the
+  event counts used here, not designed for 10 million events.
+
 ## Versions (2026-10-22)
 
 Geant4 11.4.3 (newest 11.x available for both linux-64 and osx-arm64 on
@@ -125,7 +252,8 @@ Linux-only dependencies are UNCLEAR until the CI run.
 
 ## Measurements
 
-None. No performance has been measured.
+- 2026-10-23: B4a comparison, see the Y4 section. Physics only; no performance has been measured.
+- 2026-10-23: mean contained fraction of 1 GeV electrons, see the Y4 section.
 
 ## Local verification (2026-10-22, macOS arm64, Darwin)
 

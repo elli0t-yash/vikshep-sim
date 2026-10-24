@@ -5,11 +5,16 @@
 
 #include <nlohmann/json.hpp>
 
+#include "calorimeter_geometry.hh"
+
 // One problem found in a spec. The pointer is an RFC 6901 JSON Pointer to the
 // offending field ("" is the root object).
 struct SpecIssue {
   std::string pointer;
   std::string message;
+  // For a missing required field: the name of the field. The pointer then
+  // names the parent object. Empty otherwise.
+  std::string missing;
 };
 
 // Names that depend on the installed Geant4. Filled by load_geant4_catalogue()
@@ -31,8 +36,11 @@ struct ValidationResult {
 // Particles accepted by gun.particle.
 const std::vector<std::string>& allowed_particles();
 
+// The geometry numbers of a spec, if all of them are present and valid.
+bool read_geometry(const nlohmann::json& spec, CalorimeterGeometry& out);
+
 // Checks a parsed spec against docs/SPEC.md and reports every problem.
 ValidationResult validate_spec(const nlohmann::json& spec, const Catalogue& catalogue);
 
-// [{"message": ..., "pointer": ...}, ...]
+// [{"message": ..., "missing": ... (only if set), "pointer": ...}, ...]
 nlohmann::json issues_to_json(const std::vector<SpecIssue>& issues);

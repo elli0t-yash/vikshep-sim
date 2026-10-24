@@ -29,6 +29,10 @@ add_library(vikshep_core STATIC
   src/cmd_run.cc
   src/cmd_datasets.cc
   src/cmd_validate.cc
+  src/cmd_dev_run.cc
+  src/datasets_check.cc
+  src/dev_run.cc
+  src/spec_file.cc
   src/spec_validate.cc
   src/spec_canonical.cc
   src/spec_catalogue.cc
@@ -55,6 +59,7 @@ include(Catch)
 add_executable(vikshep-tests
   tests/test_spec.cc
   tests/test_cli.cc
+  tests/test_datasets.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
 target_compile_definitions(vikshep-tests PRIVATE
@@ -63,6 +68,14 @@ target_compile_definitions(vikshep-tests PRIVATE
 )
 add_dependencies(vikshep-tests vikshep-sim)
 catch_discover_tests(vikshep-tests)
+
+# One Geant4 run per process, so the simulation test has its own executable.
+add_executable(vikshep-sim-tests tests/test_dev_run.cc)
+target_link_libraries(vikshep-sim-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
+target_compile_definitions(vikshep-sim-tests PRIVATE
+  VIKSHEP_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/docs/examples"
+)
+catch_discover_tests(vikshep-sim-tests)
 
 add_test(NAME schema_matches_validator
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_schema.py

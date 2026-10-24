@@ -132,7 +132,14 @@ Error:
 `code` is one of the stable codes in section 4. `message` is for people and is
 not stable. The optional `errors` array (Decision S6) is present for
 `SPEC_INVALID` and lists every problem found; each entry has a `pointer` (RFC
-6901 JSON Pointer into the spec file) and a `message`.
+6901 JSON Pointer into the spec file) and a `message`. When the problem is a
+missing required field, the `pointer` names the parent object and the entry has
+one more key, `missing`, holding the name of the missing field (so the app
+can build the full path itself):
+
+```json
+{"message":"missing required field 'thickness_mm'","missing":"thickness_mm","pointer":"/geometry/active"}
+```
 
 ### 2.2 Cadence and ordering
 
@@ -249,9 +256,11 @@ next to its own output paths.
 - The spec is validated in full **before any simulation starts**, and before
   the output folder or its temporary folder is created.
 - Each problem is reported with a JSON Pointer (RFC 6901) to the offending
-  field; a missing required field points to its parent object.
+  field; a missing required field points to its parent object and the entry
+  carries a `missing` key naming the field (section 2.1).
 - Validation covers syntax, `spec_version`, required fields, types, ranges,
   names (physics list, EM option, template) against what `info --json` lists,
+  the gun start point against the world (SPEC.md, 2.2),
   and consistency between fields.
 - Missing data sets are a separate check, run after validation succeeds:
   `DATASETS_MISSING`, exit 3.
@@ -316,7 +325,7 @@ The app MUST NOT:
 | S3 | Extra keys in `info --json` | Add `contract_version`, `spec_versions`, `hits_schema_versions` (accepted; emitted since the spec milestone) | Only `contract_version` |
 | S4 | Second signal | Exit 4 immediately, temp folder may remain | Ignore further signals |
 | S5 | provenance.json | Deterministic, guaranteed keys as in 5.1 | Fold into run_summary.json |
-| S6 | Error line extension | Extra `errors` array of {pointer, message} on SPEC_INVALID | One error line per problem |
+| S6 | Error line extension | Extra `errors` array of {pointer, message, missing?} on SPEC_INVALID (`missing` added in the calorimeter milestone) | One error line per problem |
 | S7 | `--out` handling | Must not exist; parent must exist | Allow an existing empty folder |
 | S8 | Default of `--progress` | `none` (stdout empty) | `jsonl` always |
 | S9 | Sources of the spec | `--spec <file>` only | Also `-` for stdin |

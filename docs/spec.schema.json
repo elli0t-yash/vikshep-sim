@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vikshep.invalid/schemas/simspec-1.0.json",
   "title": "vikshep-sim simulation spec, spec_version 1.0",
-  "description": "Structural rules of docs/SPEC.md. Names that depend on the installed Geant4 (materials, physics lists) are checked by vikshep-sim validate, not here. The validator in vikshep-sim is authoritative.",
+  "description": "Structural rules of docs/SPEC.md. Rules that depend on the installed Geant4 (material and physics list names) or on the world size (the gun start must be inside the world) are checked by vikshep-sim validate, not here. The validator in vikshep-sim is authoritative.",
   "type": "object",
   "additionalProperties": false,
   "required": ["spec_version", "template", "geometry", "gun", "events", "seed"],
@@ -29,7 +29,10 @@
           "enum": ["e-", "e+", "gamma", "mu-", "mu+", "pi-", "pi+", "proton", "neutron", "kaon+", "kaon-"]
         },
         "energy_GeV": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000},
-        "position_mm": {"$ref": "#/$defs/vector3", "default": [0, 0, -20]},
+        "position_mm": {
+          "$ref": "#/$defs/vector3",
+          "description": "Default: [0, 0, -(stack_length/2 + 10)] mm. Must lie strictly inside the world; the validator checks that, the schema cannot."
+        },
         "direction": {
           "$ref": "#/$defs/vector3",
           "not": {"const": [0, 0, 0]},
