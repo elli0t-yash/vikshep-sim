@@ -1,8 +1,11 @@
 #include "dev_run.hh"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <exception>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 
@@ -19,6 +22,8 @@
 #include "G4RunManagerFactory.hh"
 #include "G4SDManager.hh"
 #include "G4Step.hh"
+#include "G4StepPoint.hh"
+#include "G4Track.hh"
 #include "G4SystemOfUnits.hh"
 #include "G4ThreeVector.hh"
 #include "G4UImanager.hh"
@@ -29,6 +34,8 @@
 #include "G4VUserDetectorConstruction.hh"
 #include "G4VUserPrimaryGeneratorAction.hh"
 #include "Randomize.hh"
+#include "event_seed.hh"
+#include "reorder_buffer.hh"
 #include "stderr_session.hh"
 
 using nlohmann::json;
@@ -46,7 +53,12 @@ constexpr const char* kRunManagerTypeName = "MT (G4MTRunManager)";
 // Shared by all threads. Each event writes only its own slice.
 struct SharedResults {
   CalorimeterGeometry geometry;
+  std::uint64_t spec_seed = 0;
   std::vector<double>* edep_mev = nullptr;
+  // Completed events go here and come out in event_id order.
+  ReorderBuffer<EventHits>* ordered = nullptr;
+  std::mutex error_mutex;
+  std::exception_ptr error;  // first exception thrown by the consumer
 };
 
 // Energy deposited in the event being processed by this thread.
@@ -56,10 +68,19 @@ std::vector<double>& thread_event_buffer()
   return buffer;
 }
 
+// Hits of the event being processed by this thread, in step order.
+std::vector<Hit>& thread_event_hits()
+{
+  static thread_local std::vector<Hit> hits;
+  return hits;
+}
+
 class DetectorConstruction : public G4VUserDetectorConstruction {
  public:
-  DetectorConstruction(const json& spec, const CalorimeterGeometry& geometry)
+  DetectorConstruction(const json& spec, const CalorimeterGeometry& geometry,
+                       const std::array<bool, 2>& record_hits)
       : geometry_(geometry),
+        record_hits_(record_hits),
         absorber_material_(spec.at("geometry").at("absorber").at("material").get<std::string>()),
         active_material_(spec.at("geometry").at("active").at("material").get<std::string>())
   {
@@ -110,19 +131,22 @@ class DetectorConstruction : public G4VUserDetectorConstruction {
 
  private:
   CalorimeterGeometry geometry_;
+  std::array<bool, 2> record_hits_;  // per slab type: is it a sensitive volume of the spec
   std::string absorber_material_;
   std::string active_material_;
   G4LogicalVolume* absorber_lv_ = nullptr;
   G4LogicalVolume* active_lv_ = nullptr;
 };
 
-// Adds the energy deposited in a step to this thread's event buffer. Both slab
-// types are scored here regardless of the spec's `sensitive` field, because
-// dev-run reports both.
+// Scores the steps in one slab type. Every step with edep > 0 is added to this
+// thread's energy table (both slab types, whatever the spec's `sensitive`, because
+// dev-run reports both). If the slab type is a sensitive volume of the spec, the
+// step is also recorded as a hit (docs/HITS.md: a hit is a step in a sensitive
+// volume with edep > 0).
 class SlabDetector : public G4VSensitiveDetector {
  public:
-  SlabDetector(const std::string& name, int slab, int layers)
-      : G4VSensitiveDetector(name), slab_(slab), layers_(layers)
+  SlabDetector(const std::string& name, int slab, int layers, bool record_hits)
+      : G4VSensitiveDetector(name), slab_(slab), layers_(layers), record_hits_(record_hits)
   {
   }
 
@@ -132,22 +156,46 @@ class SlabDetector : public G4VSensitiveDetector {
     if (edep <= 0.0) {
       return false;
     }
-    const int layer = step->GetPreStepPoint()->GetTouchable()->GetCopyNumber();
-    std::vector<double>& buffer = thread_event_buffer();
-    buffer[static_cast<std::size_t>(slab_) * layers_ + layer] += edep / MeV;
+    const G4StepPoint* pre = step->GetPreStepPoint();
+    const int copy_no = pre->GetTouchable()->GetCopyNumber();
+    thread_event_buffer()[static_cast<std::size_t>(slab_) * layers_ + copy_no] += edep / MeV;
+
+    if (record_hits_) {
+      const G4ThreeVector middle = 0.5 * (pre->GetPosition() + step->GetPostStepPoint()->GetPosition());
+      const G4ThreeVector momentum = pre->GetMomentum();
+      const G4Track* track = step->GetTrack();
+      ::Hit hit;  // (G4VSensitiveDetector has a member function called Hit)
+      hit.volume = slab_;
+      hit.copy_no = copy_no;
+      hit.layer = copy_no;  // layered template: the layer index is the copy number
+      hit.x_mm = middle.x() / mm;
+      hit.y_mm = middle.y() / mm;
+      hit.z_mm = middle.z() / mm;
+      hit.t_ns = pre->GetGlobalTime() / ns;
+      hit.edep_mev = edep / MeV;
+      hit.px_mev = momentum.x() / MeV;
+      hit.py_mev = momentum.y() / MeV;
+      hit.pz_mev = momentum.z() / MeV;
+      hit.track_id = track->GetTrackID();
+      hit.parent_id = track->GetParentID();
+      hit.pdg = track->GetDefinition()->GetPDGEncoding();
+      hit.step = track->GetCurrentStepNumber();
+      thread_event_hits().push_back(hit);
+    }
     return true;
   }
 
  private:
   int slab_;
   int layers_;
+  bool record_hits_;
 };
 
 void DetectorConstruction::ConstructSDandField()
 {
   auto* manager = G4SDManager::GetSDMpointer();
-  auto* absorber_sd = new SlabDetector("absorber_sd", 0, geometry_.layers);
-  auto* active_sd = new SlabDetector("active_sd", 1, geometry_.layers);
+  auto* absorber_sd = new SlabDetector("absorber_sd", 0, geometry_.layers, record_hits_[0]);
+  auto* active_sd = new SlabDetector("active_sd", 1, geometry_.layers, record_hits_[1]);
   manager->AddNewDetector(absorber_sd);
   manager->AddNewDetector(active_sd);
   SetSensitiveDetector("absorber", absorber_sd);
@@ -185,9 +233,17 @@ class EventAction : public G4UserEventAction {
  public:
   explicit EventAction(SharedResults* shared) : shared_(shared) {}
 
-  void BeginOfEventAction(const G4Event*) override
+  void BeginOfEventAction(const G4Event* event) override
   {
+    // The random stream of an event depends only on (spec seed, global event
+    // id). Geant4 has already seeded this thread's engine from its own queue;
+    // overwrite that, so the requirement holds by construction and does not
+    // rest on how G4MTRunManager happens to hand out seeds. Nothing has drawn a
+    // random number yet: the gun is deterministic. If a gun ever draws random
+    // numbers, its GeneratePrimaries() must run after this seeding.
+    seed_event_engine(shared_->spec_seed, static_cast<std::uint64_t>(event->GetEventID()));
     thread_event_buffer().assign(2 * static_cast<std::size_t>(shared_->geometry.layers), 0.0);
+    thread_event_hits().clear();
   }
 
   void EndOfEventAction(const G4Event* event) override
@@ -196,6 +252,22 @@ class EventAction : public G4UserEventAction {
     const std::vector<double>& buffer = thread_event_buffer();
     std::copy(buffer.begin(), buffer.end(),
               shared_->edep_mev->begin() + static_cast<std::ptrdiff_t>(event->GetEventID() * size));
+
+    // Hand the event to the reorder buffer. An exception must not travel through
+    // Geant4: keep the first one, finish the run, rethrow it afterwards.
+    EventHits finished;
+    finished.event_id = static_cast<std::uint64_t>(event->GetEventID());
+    finished.hits = std::move(thread_event_hits());
+    thread_event_hits().clear();
+    try {
+      shared_->ordered->submit(finished.event_id, std::move(finished));
+    }
+    catch (...) {
+      std::lock_guard<std::mutex> lock(shared_->error_mutex);
+      if (!shared_->error) {
+        shared_->error = std::current_exception();
+      }
+    }
   }
 
  private:
@@ -219,7 +291,7 @@ class Actions : public G4VUserActionInitialization {
 
 }  // namespace
 
-DevRunResult run_dev_simulation(const json& spec, int threads)
+DevRunResult run_dev_simulation(const json& spec, int threads, const EventConsumer& consumer)
 {
   if (threads < 1) {
     throw std::invalid_argument("threads must be at least 1");
@@ -279,15 +351,40 @@ DevRunResult run_dev_simulation(const json& spec, int threads)
   }
   result.default_cut_mm = physics->GetDefaultCutValue() / mm;
 
+  // Sensitive volumes of the spec: which slab types record hits.
+  std::array<bool, 2> record_hits = {false, false};
+  for (const json& name : spec.at("sensitive")) {
+    for (std::size_t i = 0; i < 2; ++i) {
+      if (name == kSlabNames[i]) {
+        record_hits[i] = true;
+      }
+    }
+  }
+
+  // Events come out of the buffer in event_id order whatever the thread count.
+  // The window bounds memory (see reorder_buffer.hh): Geant4's run manager
+  // starts events in increasing id order, which is what makes it safe.
+  ReorderBuffer<EventHits> ordered(
+      [&consumer](std::uint64_t, EventHits&& event) {
+        if (consumer) {
+          consumer(std::move(event));
+        }
+      },
+      0, static_cast<std::size_t>(16 * threads + 16));
+
   SharedResults shared;
+  shared.ordered = &ordered;
   shared.geometry = geometry;
+  shared.spec_seed = spec.at("seed").get<std::uint64_t>();
   shared.edep_mev = &result.edep_mev;
 
-  run_manager->SetUserInitialization(new DetectorConstruction(spec, geometry));
+  run_manager->SetUserInitialization(new DetectorConstruction(spec, geometry, record_hits));
   run_manager->SetUserInitialization(physics);
   run_manager->SetUserInitialization(new Actions(gun, &shared));
 
-  // The master generator seeds the events. Seed it from the spec.
+  // Geant4's master engine still seeds Geant4's own per-event seeds, which
+  // EventAction replaces. Seed it from the spec anyway so nothing depends on
+  // an unseeded engine.
   CLHEP::HepRandom::setTheSeed(spec.at("seed").get<long>());
 
   run_manager->Initialize();
@@ -295,5 +392,11 @@ DevRunResult run_dev_simulation(const json& spec, int threads)
 
   run_manager.reset();
   G4UImanager::GetUIpointer()->SetCoutDestination(nullptr);
+  if (shared.error) {
+    std::rethrow_exception(shared.error);
+  }
+  if (ordered.next_id() != static_cast<std::uint64_t>(events) || ordered.pending() != 0) {
+    throw std::runtime_error("not every event was delivered in order");
+  }
   return result;
 }

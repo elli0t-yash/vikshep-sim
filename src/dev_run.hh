@@ -1,11 +1,13 @@
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 
 #include <nlohmann/json.hpp>
 
 #include "calorimeter_geometry.hh"
+#include "hits.hh"
 
 // EXPERIMENTAL. Runs the layered calorimeter in Geant4 and keeps the energy
 // deposited per event, slab type and layer. Used by `vikshep-sim dev-run`,
@@ -30,6 +32,15 @@ struct DevRunResult {
   }
 };
 
+// Receives the hits of each event, strictly in event_id order, each event once.
+// Called from a worker thread, never from two threads at once. Events with no
+// hits are delivered too, with an empty hits vector. May throw; the run then
+// finishes quickly and run_dev_simulation() rethrows the first exception.
+using EventConsumer = std::function<void(EventHits&&)>;
+
 // resolved_spec: output of resolve_spec(). Nothing is written to stdout;
-// Geant4's own output goes to stderr.
-DevRunResult run_dev_simulation(const nlohmann::json& resolved_spec, int threads);
+// Geant4's own output goes to stderr. Hits are recorded in the volumes listed in
+// the spec's `sensitive` field and passed to consumer (if any). The energy table
+// in the result covers both slab types regardless of `sensitive`.
+DevRunResult run_dev_simulation(const nlohmann::json& resolved_spec, int threads,
+                                const EventConsumer& consumer = nullptr);

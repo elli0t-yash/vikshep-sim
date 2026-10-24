@@ -32,6 +32,8 @@ add_library(vikshep_core STATIC
   src/cmd_dev_run.cc
   src/datasets_check.cc
   src/dev_run.cc
+  src/event_digest.cc
+  src/event_seed.cc
   src/spec_file.cc
   src/spec_validate.cc
   src/spec_canonical.cc
@@ -60,6 +62,10 @@ add_executable(vikshep-tests
   tests/test_spec.cc
   tests/test_cli.cc
   tests/test_datasets.cc
+  tests/test_reorder_buffer.cc
+  tests/test_event_seed.cc
+  tests/test_event_digest.cc
+  tests/test_digests.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
 target_compile_definitions(vikshep-tests PRIVATE
