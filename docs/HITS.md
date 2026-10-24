@@ -14,8 +14,13 @@ Words MUST, SHOULD and MAY are used in the usual sense.
   both ends and a footer), not the stream format.
 - Metadata version: V5. Byte order: little endian.
 - Compression: none. Record batch bodies are not compressed.
-- Alignment: every buffer and every message is padded to a multiple of 8 bytes.
-  (Decision D5: confirm against the chosen writer in Y3.)
+- Alignment: every buffer and every message is padded to a multiple of 8 bytes
+  (Decision D5, measured with the pinned writer of section 6.1: a record batch of
+  101 rows has a body of exactly 10128 bytes, the sum of the buffers each rounded up
+  to a multiple of 8).
+- End of stream: the end-of-stream marker (`0xFFFFFFFF 0x00000000`) is written
+  after the last message and before the footer, as the file format description
+  has it. The writer does not write it unless asked, so the simulator asks.
 - Nothing that varies between runs is written: no timestamps, no host or user
   names, no paths, no writer or library version strings, no random identifiers.
   The only custom metadata is the set listed in section 3.
@@ -204,6 +209,32 @@ batches.
   of the `done` line in jsonl progress mode (SIDECAR.md). It is never written
   into `hits.arrow` itself.
 - The OID rule is shared with other Vikshep projects and never changes.
+- The simulator computes the hash while it writes the file, then reads the file
+  back and hashes it again; if the two differ it fails and produces no OID.
+
+### 6.1 The writer, and what provenance.json records about it
+
+The bytes of `hits.arrow` depend on this format description and also on the
+library that writes the Arrow file and on how the simulator uses it (the
+dictionary, the batch size, the end-of-stream marker, the column layout). So
+that a change in any of them is visible, `provenance.json` records three things
+(SIDECAR.md, section 5.1):
+
+- `nanoarrow.version`: the version string of the vendored nanoarrow, for example
+  `0.10.0-SNAPSHOT`;
+- `nanoarrow.commit`: the exact commit of nanoarrow that was vendored (a 40
+  character hash). The version string alone does not identify a snapshot;
+- `writer_scheme`: an integer, currently `1`. It is raised by one whenever a change
+  of the writer, of the vendored code, or of how it is used changes the bytes of
+  the file that the same hits would produce. A test compares the bytes written for
+  a fixed small dataset with checked-in files (batches of 4 rows, both volumes,
+  hit-free events, and a file with no hits at all) and fails when they differ, so
+  the change cannot go unnoticed.
+
+Two runs with the same `writer_scheme` and the same hits give the same OID. Runs
+whose provenance has different values here may differ in OID even for identical
+hits. `provenance.json` also records `seeding_scheme` (the version of section 4.2,
+currently `1`).
 
 ## 7. Worked example
 
@@ -255,7 +286,7 @@ gives the same result everywhere.
 | D2 | Rows per record batch | 65536, last batch partial | Another fixed size, or one batch per run |
 | D3 | What is a hit | Step in a sensitive volume with edep > 0 | All steps in sensitive volumes, including edep = 0 |
 | D4 | Event id range | 0 to events-1 | Spec-supplied first id |
-| D5 | Buffer alignment | 8 bytes | 64 bytes (Arrow's recommendation); depends on writer, UNCLEAR until Y3 |
+| D5 | Buffer alignment | Decided: 8 bytes (measured with the pinned writer) | 64 bytes (Arrow's recommendation) |
 | D6 | Dictionary content | All sensitive volume names, sorted bytewise, written once | Names in order of first hit (depends on data), or volume as plain utf8 |
 | D7 | Empty run | Valid file with zero record batches | One empty batch |
 | D8 | Version string form | `"major.minor"` in schema metadata | Integer major only |

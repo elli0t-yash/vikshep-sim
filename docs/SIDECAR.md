@@ -207,11 +207,29 @@ No other files are present. The app MUST ignore files it does not know.
 ### 5.1 provenance.json
 
 Deterministic: byte-identical for the same build, platform, spec and seed. No
-timestamps, no paths, no host or user names. Keys sorted. Guaranteed keys:
-`contract_version`, `geant4` (as in `info`), `hits_schema_version`, `platform`
-(as in `info`), `seed`, `spec_oid` (the OID rule applied to the bytes of the
-spec file), `spec_version`, `tool_version`. Further keys MAY be added.
-(Decision S5.)
+timestamps, no absolute paths, no host or user names, no thread count. Keys sorted.
+Two-space indentation, one final newline. Guaranteed keys:
+
+| Key | Content |
+|-----|---------|
+| contract_version | integer |
+| data_sets | array, sorted by `env_var`, one entry per Geant4 data set the run needs: `env_var` (for example `G4LEDATA`), `directory` (base name of the data directory, which carries the data set version, for example `EMLOW8.8`), and `conda_package`, `conda_version`, `conda_build` (from the conda metadata when it can be found, otherwise the string `"unknown"`; never an error) |
+| default_production_cut_mm | the default production cut in effect |
+| geant4 | as in `info` |
+| hits_schema_version | string |
+| nanoarrow | `{"commit": <40 character commit>, "version": <version string>}` of the vendored nanoarrow (HITS.md, section 6.1) |
+| physics_list | name |
+| platform | as in `info` |
+| run_manager | the Geant4 run manager class used |
+| seed | the spec's seed |
+| seeding_scheme | integer, version of the per-event seeding (HITS.md, section 4.2) |
+| spec | the canonical, resolved spec as a JSON object (SPEC.md, section 4) |
+| spec_oid | the OID rule applied to the bytes of the canonical spec (SPEC.md, section 4), so the same experiment has the same `spec_oid` whatever the order of keys in the spec file |
+| spec_version | string |
+| tool_version | string |
+| writer_scheme | integer, version of the way `hits.arrow` is written (HITS.md, section 6.1) |
+
+Further keys MAY be added. (Decision S5.)
 
 ### 5.2 run_summary.json
 
