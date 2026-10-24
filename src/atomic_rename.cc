@@ -1,6 +1,8 @@
 #include "atomic_rename.hh"
 
 #include <cerrno>
+#include <filesystem>
+#include <system_error>
 
 #if defined(__APPLE__)
 #include <stdio.h>  // renamex_np, RENAME_EXCL

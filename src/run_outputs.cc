@@ -1,3 +1,5 @@
+
+#include <string>
 #include "run_outputs.hh"
 
 extern "C" {

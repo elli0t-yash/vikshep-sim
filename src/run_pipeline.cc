@@ -7,6 +7,9 @@
 #include <fstream>
 #include <system_error>
 #include <vector>
+#include <cstdint>
+#include <string>
+#include <utility>
 
 #include "atomic_rename.hh"
 #include "datasets_check.hh"

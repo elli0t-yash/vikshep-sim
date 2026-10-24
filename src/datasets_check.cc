@@ -4,6 +4,9 @@
 #include <cstdlib>
 #include <algorithm>
 #include <filesystem>
+#include <string>
+#include <system_error>
+#include <vector>
 
 namespace {
 

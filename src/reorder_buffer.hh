@@ -8,6 +8,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <utility>
+#include <string>
 
 // Accepts completed events in any order, from any thread, and hands them to a
 // consumer strictly in event_id order (first_id, first_id + 1, ...). This is

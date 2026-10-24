@@ -4,6 +4,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <string>
+#include <system_error>
 
 #include "atomic_rename.hh"
 #include "cli_helpers.hh"

@@ -6,6 +6,9 @@
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
+#include <cstdint>
+#include <string>
+#include <vector>
 
 extern "C" {
 #include "nanoarrow/nanoarrow.h"

@@ -7,6 +7,8 @@
 #include <filesystem>
 #include <iostream>
 #include <mutex>
+#include <string>
+#include <system_error>
 #include <nlohmann/json.hpp>
 
 #include "G4StateManager.hh"

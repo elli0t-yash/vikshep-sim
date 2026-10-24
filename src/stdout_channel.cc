@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <iostream>
 #include <mutex>
+#include <string>
 
 #include "cancellation.hh"
 

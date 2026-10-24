@@ -4,6 +4,9 @@
 #include <iterator>
 #include <string>
 #include <vector>
+#include <cstdint>
+#include <stdexcept>
+#include <utility>
 
 #include <catch2/catch_test_macros.hpp>
 

@@ -8,6 +8,10 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <cstdint>
+#include <cstdlib>
+#include <utility>
+#include <vector>
 
 #include "G4Box.hh"
 #include "G4EmParameters.hh"

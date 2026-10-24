@@ -7,6 +7,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <cstdio>
+#include <iterator>
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>

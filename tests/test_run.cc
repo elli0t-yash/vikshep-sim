@@ -6,6 +6,11 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <algorithm>
+#include <cstdint>
+#include <cstdio>
+#include <new>
+#include <stdexcept>
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>

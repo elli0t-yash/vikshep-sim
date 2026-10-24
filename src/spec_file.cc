@@ -2,6 +2,8 @@
 
 #include <fstream>
 #include <iterator>
+#include <string>
+#include <vector>
 
 #include "spec_catalogue.hh"
 
