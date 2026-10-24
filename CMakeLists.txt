@@ -1,11 +1,25 @@
 cmake_minimum_required(VERSION 3.20)
 project(vikshep-sim VERSION 0.1.0 LANGUAGES C CXX)
 
+# Release is the default build type: the build type is part of "same build" in the
+# determinism promise (docs/HITS.md, section 9), and the output is recorded in
+# provenance.json (build_type). Optimisation never includes -ffast-math or -Ofast, which
+# would let the compiler change floating-point results.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type (default: Release)" FORCE)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Geant4 REQUIRED)
+
+foreach(_flags "${CMAKE_C_FLAGS}" "${CMAKE_CXX_FLAGS}" "${CMAKE_C_FLAGS_RELEASE}" "${CMAKE_CXX_FLAGS_RELEASE}")
+  if(_flags MATCHES "fast-math|Ofast")
+    message(FATAL_ERROR "-ffast-math / -Ofast are not allowed: they change floating-point results")
+  endif()
+endforeach()
 find_package(CLI11 REQUIRED)
 find_package(nlohmann_json REQUIRED)
 
@@ -19,6 +33,12 @@ if(Geant4_multithreaded_FOUND)
   set(VIKSHEP_GEANT4_MULTITHREADED 1)
 else()
   set(VIKSHEP_GEANT4_MULTITHREADED 0)
+endif()
+
+if(CMAKE_BUILD_TYPE)
+  set(VIKSHEP_BUILD_TYPE "${CMAKE_BUILD_TYPE}")
+else()
+  set(VIKSHEP_BUILD_TYPE "multi-config")
 endif()
 
 configure_file(src/build_config.hh.in ${CMAKE_CURRENT_BINARY_DIR}/generated/build_config.hh @ONLY)
@@ -51,12 +71,16 @@ add_library(vikshep_core STATIC
   src/dev_run.cc
   src/event_digest.cc
   src/event_seed.cc
+  src/atomic_rename.cc
   src/build_info.cc
+  src/cancellation.cc
+  src/failure.cc
   src/hits_writer.cc
   src/run_outputs.cc
   src/run_pipeline.cc
   src/sha3_256.cc
   src/spec_file.cc
+  src/stdout_channel.cc
   src/spec_validate.cc
   src/spec_canonical.cc
   src/spec_catalogue.cc
@@ -79,7 +103,22 @@ target_link_libraries(vikshep-sim PRIVATE vikshep_core)
 # Tests: ctest --test-dir build --output-on-failure
 enable_testing()
 find_package(Catch2 3 REQUIRED)
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
+# The tests use pyarrow, jsonschema and matplotlib, which are in the conda environment: use
+# its Python, not another one on the machine. (FindPython3 picked a system Python of the
+# same version in a fresh environment, so the interpreter is looked up here first.)
+set(VIKSHEP_PYTHON_HINTS "")
+if(DEFINED ENV{CONDA_PREFIX})
+  list(APPEND VIKSHEP_PYTHON_HINTS "$ENV{CONDA_PREFIX}/bin")
+endif()
+foreach(_prefix IN LISTS CMAKE_PREFIX_PATH)
+  list(APPEND VIKSHEP_PYTHON_HINTS "${_prefix}/bin")
+endforeach()
+find_program(VIKSHEP_PYTHON NAMES python3 python HINTS ${VIKSHEP_PYTHON_HINTS} NO_DEFAULT_PATH)
+if(NOT VIKSHEP_PYTHON)
+  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+  set(VIKSHEP_PYTHON "${Python3_EXECUTABLE}" CACHE FILEPATH "Python for the tests" FORCE)
+endif()
+message(STATUS "Python for the tests: ${VIKSHEP_PYTHON}")
 include(Catch)
 
 add_executable(vikshep-tests
@@ -97,10 +136,15 @@ add_executable(vikshep-tests
   tests/test_digests.cc
   tests/test_outputs.cc
   tests/test_plot.cc
+  tests/test_atomic_rename.cc
+  tests/test_channel.cc
+  tests/test_progress.cc
+  tests/test_run.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
 target_compile_definitions(vikshep-tests PRIVATE
-  VIKSHEP_PYTHON="${Python3_EXECUTABLE}"
+  VIKSHEP_CHANNEL_PROBE="$<TARGET_FILE:channel-probe>"
+  VIKSHEP_PYTHON="${VIKSHEP_PYTHON}"
   VIKSHEP_TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests"
   VIKSHEP_SCRIPTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/scripts"
   VIKSHEP_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden"
@@ -118,6 +162,10 @@ target_compile_definitions(vikshep-sim-tests PRIVATE
 )
 catch_discover_tests(vikshep-sim-tests)
 
+# Test-only program for the stdout channel and the signal handlers.
+add_executable(channel-probe tests/channel_probe.cc)
+target_link_libraries(channel-probe PRIVATE vikshep_core)
+
 # A test-only gun that draws a random number: independent of the thread count.
 add_executable(random-gun-probe tests/random_gun_probe.cc)
 target_link_libraries(random-gun-probe PRIVATE vikshep_core)
@@ -125,19 +173,38 @@ target_compile_definitions(random-gun-probe PRIVATE
   VIKSHEP_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/docs/examples"
 )
 add_test(NAME random_draws_independent_of_threads
-  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_random_gun.py
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_random_gun.py
           $<TARGET_FILE:random-gun-probe>
 )
 set_tests_properties(random_draws_independent_of_threads PROPERTIES SKIP_RETURN_CODE 77)
 
 # The golden hits files, read with pyarrow and hashlib (independent of the C++ writer).
 add_test(NAME golden_hits_files_valid
-  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_golden.py
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_golden.py
           ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden
 )
 
+# Cancellation of `run` by SIGTERM and SIGINT, with the cancel latency (skipped, exit 77,
+# when the Geant4 data sets are missing).
+add_test(NAME run_cancellation_by_signal
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_cancel.py
+          $<TARGET_FILE:vikshep-sim>
+          ${CMAKE_CURRENT_SOURCE_DIR}/tests/long_run_spec.json
+)
+set_tests_properties(run_cancellation_by_signal PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+# The stdout of `run --progress jsonl`: purity, shape, order and cadence, for 1 and 4 threads.
+foreach(_threads 1 4)
+  add_test(NAME run_stdout_stream_${_threads}_threads
+    COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_run_stream.py
+            $<TARGET_FILE:vikshep-sim>
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/stream_spec.json ${_threads}
+  )
+  set_tests_properties(run_stdout_stream_${_threads}_threads PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+endforeach()
+
 add_test(NAME schema_matches_validator
-  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_schema.py
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_schema.py
           $<TARGET_FILE:vikshep-sim>
           ${CMAKE_CURRENT_SOURCE_DIR}/docs/spec.schema.json
           ${CMAKE_CURRENT_SOURCE_DIR}/docs/examples

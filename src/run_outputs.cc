@@ -30,6 +30,7 @@ json make_provenance(const json& resolved_spec, const ProvenanceFacts& facts)
   const std::string canonical = canonical_spec(resolved_spec);
 
   json j;
+  j["build_type"] = VIKSHEP_BUILD_TYPE;
   j["contract_version"] = kContractVersion;
   j["data_sets"] = data_sets;
   j["default_production_cut_mm"] = facts.default_cut_mm;

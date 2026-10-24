@@ -157,7 +157,7 @@ int run_dev(const std::string& path, int threads, const std::string& digests_pat
     // OUTPUT_EXISTS is a usage error (exit 2), the others are failures (exit 1).
     std::cout << make_error_line(e.code(), e.what()).dump() << "\n";
     std::cerr << "dev-run failed: " << e.what() << "\n";
-    return e.code() == "OUTPUT_EXISTS" ? kExitUsageOrSpec : kExitFailure;
+    return exit_code_for(e.code());
   }
   catch (const std::exception& e) {
     std::cerr << "dev-run failed: " << e.what() << "\n";

@@ -34,6 +34,7 @@
 #include "G4VUserDetectorConstruction.hh"
 #include "G4VUserPrimaryGeneratorAction.hh"
 #include "Randomize.hh"
+#include "errors.hh"
 #include "event_seed.hh"
 #include "reorder_buffer.hh"
 #include "stderr_session.hh"
@@ -57,6 +58,7 @@ struct SharedResults {
   std::vector<double>* edep_mev = nullptr;
   // Completed events go here and come out in event_id order.
   ReorderBuffer<EventHits>* ordered = nullptr;
+  const CancelCheck* cancel = nullptr;
   std::mutex error_mutex;
   std::exception_ptr error;  // first exception thrown by the consumer
 };
@@ -93,7 +95,7 @@ class DetectorConstruction : public G4VUserDetectorConstruction {
     G4Material* absorber = nist->FindOrBuildMaterial(absorber_material_);
     G4Material* active = nist->FindOrBuildMaterial(active_material_);
     if (vacuum == nullptr || absorber == nullptr || active == nullptr) {
-      throw std::runtime_error("a material of the spec is unknown to Geant4");
+      throw GeometryError("a material of the spec is unknown to Geant4");
     }
 
     const double half_xy = 0.5 * geometry_.transverse_mm * mm;
@@ -278,6 +280,13 @@ class EventAction : public G4UserEventAction {
         shared_->error = std::current_exception();
       }
     }
+
+    // Soft abort: this thread's run manager lets the current event finish (this one has)
+    // and starts no other. Every worker polls the flag after each of its events, so every
+    // worker stops after the event it was processing when the flag was set.
+    if (shared_->cancel != nullptr && *shared_->cancel && (*shared_->cancel)()) {
+      G4RunManager::GetRunManager()->AbortRun(true);
+    }
   }
 
  private:
@@ -306,7 +315,7 @@ class Actions : public G4VUserActionInitialization {
 }  // namespace
 
 DevRunResult run_dev_simulation(const json& spec, int threads, const EventConsumer& consumer,
-                                const AfterSeeding& after_seeding)
+                                const AfterSeeding& after_seeding, const CancelCheck& cancel)
 {
   if (threads < 1) {
     throw std::invalid_argument("threads must be at least 1");
@@ -389,6 +398,7 @@ DevRunResult run_dev_simulation(const json& spec, int threads, const EventConsum
 
   SharedResults shared;
   shared.ordered = &ordered;
+  shared.cancel = &cancel;
   shared.geometry = geometry;
   shared.spec_seed = spec.at("seed").get<std::uint64_t>();
   shared.edep_mev = &result.edep_mev;
@@ -403,14 +413,19 @@ DevRunResult run_dev_simulation(const json& spec, int threads, const EventConsum
   CLHEP::HepRandom::setTheSeed(spec.at("seed").get<long>());
 
   run_manager->Initialize();
-  run_manager->BeamOn(events);
+  // A cancellation that arrived while Geant4 was initialising: do not start the run.
+  if (!(cancel && cancel())) {
+    run_manager->BeamOn(events);
+  }
 
   run_manager.reset();
   G4UImanager::GetUIpointer()->SetCoutDestination(nullptr);
   if (shared.error) {
     std::rethrow_exception(shared.error);
   }
-  if (ordered.next_id() != static_cast<std::uint64_t>(events) || ordered.pending() != 0) {
+  const bool cancelled = cancel && cancel();
+  if (!cancelled &&
+      (ordered.next_id() != static_cast<std::uint64_t>(events) || ordered.pending() != 0)) {
     throw std::runtime_error("not every event was delivered in order");
   }
   return result;

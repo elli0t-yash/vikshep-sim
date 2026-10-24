@@ -43,10 +43,16 @@ using EventConsumer = std::function<void(EventHits&&)>;
 // random number there to check that it is independent of the thread count.
 using AfterSeeding = std::function<void(std::uint64_t event_id)>;
 
+// Polled after every event on the worker threads. When it returns true the run is aborted
+// softly: every thread finishes the event it is processing and starts no other. Events that
+// were not simulated are not delivered, and run_dev_simulation() returns normally.
+using CancelCheck = std::function<bool()>;
+
 // resolved_spec: output of resolve_spec(). Nothing is written to stdout;
 // Geant4's own output goes to stderr. Hits are recorded in the volumes listed in
 // the spec's `sensitive` field and passed to consumer (if any). The energy table
 // in the result covers both slab types regardless of `sensitive`.
 DevRunResult run_dev_simulation(const nlohmann::json& resolved_spec, int threads,
                                 const EventConsumer& consumer = nullptr,
-                                const AfterSeeding& after_seeding = nullptr);
+                                const AfterSeeding& after_seeding = nullptr,
+                                const CancelCheck& cancel = nullptr);

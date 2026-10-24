@@ -12,15 +12,23 @@ extern "C" {
 #include "nanoarrow/nanoarrow_ipc.h"
 }
 
+#include "errors.hh"
 #include "sha3_256.hh"
 
 namespace {
 
+// Failures while writing bytes (the "writing ..." and "starting the file" steps) are I/O
+// failures of the output; the others (building arrays) are internal.
 void check(int code, const char* what, const ArrowError& error)
 {
   if (code != 0) {
-    throw std::runtime_error(std::string("hits.arrow: ") + what + " failed (" +
-                             std::strerror(code) + "): " + error.message);
+    const std::string text = std::string("hits.arrow: ") + what + " failed (" + std::strerror(code) +
+                             "): " + error.message;
+    const std::string step = what;
+    if (step.rfind("writing", 0) == 0 || step.rfind("starting the file", 0) == 0) {
+      throw WriteError(text);
+    }
+    throw std::runtime_error(text);
   }
 }
 
@@ -265,7 +273,7 @@ HitsWriter::HitsWriter(const std::string& path, const std::vector<std::string>& 
 
   m.tee.file = std::fopen(path.c_str(), "wb");
   if (m.tee.file == nullptr) {
-    throw std::runtime_error("hits.arrow: cannot create " + path + ": " + std::strerror(errno));
+    throw WriteError("hits.arrow: cannot create the file: " + std::string(std::strerror(errno)));
   }
   m.tee.hash = &m.hash;
 
@@ -314,7 +322,7 @@ HitsFileSummary HitsWriter::finish()
   const bool closed = std::fclose(m.tee.file) == 0;
   m.tee.file = nullptr;
   if (!flushed || !closed) {
-    throw std::runtime_error("hits.arrow: closing " + m.path + " failed: " + std::strerror(errno));
+    throw WriteError("hits.arrow: closing the file failed: " + std::string(std::strerror(errno)));
   }
 
   HitsFileSummary summary;
@@ -328,12 +336,12 @@ HitsFileSummary HitsWriter::finish()
   // while writing. A mismatch means bytes were lost or changed on the way.
   struct stat st;
   if (::stat(m.path.c_str(), &st) != 0 || static_cast<std::uint64_t>(st.st_size) != summary.bytes) {
-    throw std::runtime_error("hits.arrow: the file on disk has a different size than what was written");
+    throw IntegrityError("hits.arrow: the file on disk has a different size than what was written");
   }
   const auto again = sha3_256_of_file(m.path);
   if (again != digest) {
-    throw std::runtime_error("hits.arrow: the hash of the file on disk differs from the hash computed "
-                             "while writing it; refusing to produce an OID");
+    throw IntegrityError("hits.arrow: the hash of the file on disk differs from the hash computed "
+                         "while writing it; refusing to produce an OID");
   }
   return summary;
 }

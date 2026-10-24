@@ -4,6 +4,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include "errors.hh"
+
 std::string to_hex(const std::uint8_t* bytes, std::size_t size)
 {
   static const char digits[] = "0123456789abcdef";
@@ -37,7 +39,7 @@ std::array<std::uint8_t, 32> sha3_256_of_file(const std::string& path)
 {
   std::ifstream in(path, std::ios::binary);
   if (!in) {
-    throw std::runtime_error("cannot read " + path + " to verify its hash");
+    throw WriteError("cannot read the file back to verify its hash");
   }
   Sha3_256 hash;
   std::vector<char> buffer(1 << 20);
@@ -46,7 +48,7 @@ std::array<std::uint8_t, 32> sha3_256_of_file(const std::string& path)
     hash.update(buffer.data(), static_cast<std::size_t>(in.gcount()));
   }
   if (in.bad()) {
-    throw std::runtime_error("error while reading " + path + " to verify its hash");
+    throw WriteError("error while reading the file back to verify its hash");
   }
   return hash.finish();
 }

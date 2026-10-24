@@ -273,6 +273,8 @@ compute project): the same build, on the same platform, with the same spec and
 the same seed, produces a byte-identical `hits.arrow` and therefore the same
 OID.
 
+"The same build" includes the build type (`provenance.json` records `build_type`,
+`Release` by default) and the compiler and platform that `provenance.json` records.
 Identity of simulation output across operating systems, CPU architectures,
 compilers or builds is **not promised and MUST NOT be claimed**. Reading and
 analysing a stored `hits.arrow` is a deterministic function of its bytes and

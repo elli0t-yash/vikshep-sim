@@ -23,6 +23,7 @@ micromamba activate vikshep-sim
 
 # 2. build
 cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" \
   -DCMAKE_FIND_FRAMEWORK=LAST
 cmake --build build
@@ -31,7 +32,8 @@ cmake --build build
 ./build/vikshep-sim info --json
 ```
 
-The two configure flags make CMake prefer the environment's libraries over
+`Release` is the default build type if none is given; it is recorded in `provenance.json`
+(`build_type`) and the build refuses `-ffast-math`. The prefix flags make CMake prefer the environment's libraries over
 anything in the macOS SDK or the system.
 
 ## Geant4 data sets
@@ -73,6 +75,15 @@ micromamba install -n vikshep-sim -c conda-forge geant4-data-emlow   # example
 - `vikshep-sim validate --spec <file> [--canonical]` checks a simulation spec
   without running anything (docs/SPEC.md). Valid: exit 0. Invalid: exit 2 and
   one JSON error line on stdout.
+- `vikshep-sim run --spec <file> --out <dir> [--threads N] [--progress jsonl|none]` is
+  the command of the sidecar contract (docs/SIDECAR.md): it validates the spec, simulates,
+  and writes `hits.arrow`, `provenance.json` and `run_summary.json` into the new folder
+  `<dir>`, atomically. `--threads` defaults to 1 and never changes the output. With
+  `--progress jsonl`, stdout carries only JSON lines (progress, then `done` with the OID, or
+  one `error` line); everything else, including Geant4's output, goes to stderr. Exit codes:
+  0 ok, 1 error, 2 bad usage or invalid spec or `--out` exists, 3 Geant4 data sets missing,
+  4 cancelled (SIGTERM or SIGINT). `docs/examples/consume_run.py` shows how a program uses it:
+  `python docs/examples/consume_run.py --spec docs/examples/calorimeter.json --out my_run`.
 - `vikshep-sim dev-run --spec <file> [--threads N]` is EXPERIMENTAL and outside
   the sidecar contract. It runs the spec in Geant4 and prints, on stdout, the
   mean energy deposited per layer in the absorber and in the active slab, the
@@ -81,8 +92,7 @@ micromamba install -n vikshep-sim -c conda-forge geant4-data-emlow   # example
   `hits.arrow`, `provenance.json` and `run_summary.json` (docs/HITS.md, docs/SIDECAR.md,
   section 5) into a new folder, atomically, and prints the OID; the folder must not
   exist. `--event-digests <file>` writes one fingerprint line per event.
-- `vikshep-sim run` and `vikshep-sim datasets` are stubs. They print
-  "not implemented" to stderr and exit with code 2.
+- `vikshep-sim datasets` is a stub. It prints "not implemented" to stderr and exits with code 2.
 
 ## Tests
 

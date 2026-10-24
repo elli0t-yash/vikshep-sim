@@ -138,13 +138,17 @@ TEST_CASE("--help exits 0", "[cli]")
   CHECK(run("validate --help").code == 0);
 }
 
-TEST_CASE("run and datasets are stubs that exit 2", "[cli]")
+TEST_CASE("datasets is a stub that exits 2; run needs its options", "[cli]")
 {
-  for (const char* sub : {"run", "datasets"}) {
-    const Outcome r = run(sub);
-    CHECK(r.code == 2);
-    CHECK(r.out.empty());
-  }
+  Outcome r = run("datasets");
+  CHECK(r.code == 2);
+  CHECK(r.out.empty());
+  r = run("run");  // --spec and --out are required: a usage error
+  CHECK(r.code == 2);
+  CHECK(r.out.empty());
+  r = run("run --spec x.json --out y --progress fancy");
+  CHECK(r.code == 2);
+  CHECK(r.out.empty());
 }
 
 TEST_CASE("info --json lists the template and versions", "[cli]")
