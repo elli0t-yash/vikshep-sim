@@ -471,6 +471,97 @@ provenance.json). The options as they were put:
   particles and a few interact: the energy per layer of a single pion event is lumpy and the mean over events is flat.
   A statement about these 20 events, not a measurement of hadronic response.
 
+## Milestone Y7: the `run` command (branch y7/run)
+
+- [x] Release is the default build type (never -ffast-math or -Ofast: the configure step fails if they
+      appear), set explicitly in CI and the README; `build_type` is in provenance.json
+- [x] Stdout channel (src/stdout_channel.cc): fd 1 duplicated into a private channel, fd 1 and std::cout
+      pointed at stderr, G4cout and G4cerr to stderr; every line written from one function, one write()
+      per line, under a lock
+- [x] `vikshep-sim run --spec --out [--threads N] [--progress jsonl|none]` replaces the exit-2 stub;
+      same pipeline as `dev-run --out` (src/run_pipeline.cc)
+- [x] Data set check moved inside the pipeline: DATASETS_MISSING, exit 3, before anything is created
+- [x] Progress: done = 0 first, at most one line per 250 ms, a final done = total line, then `done` with the
+      OID after the folder is in place (src/progress.hh, src/cmd_run.cc)
+- [x] Errors and exit codes as in SIDECAR.md; unexpected failures are INTERNAL (src/failure.cc)
+- [x] Cancellation by SIGTERM and SIGINT with Geant4 soft abort; second signal exits 4 at once
+- [x] No-overwrite rename (renamex_np RENAME_EXCL on macOS, renameat2 RENAME_NOREPLACE on Linux) with the
+      check-then-rename fallback
+- [x] docs/examples/consume_run.py, the reference consumer
+- [x] Tests a to g (tests/test_run.cc, check_run_stream.py, check_cancel.py); ctest 150 of 150 passed on
+      macOS arm64 (2026-10-24), also in a throwaway environment created from environment.yml alone
+- [ ] CI run, Linux (nothing is pushed)
+
+### Defaults and decisions
+
+- `--threads` default: **1** (same as dev-run). The thread count never changes the output; an app that
+  wants speed passes N.
+- `--progress` default: `none`: stdout empty in success and in failure (S8).
+- Command-line mistakes found by the argument parser (unknown option, missing `--spec`, bad `--progress`)
+  go to stderr only, exit 2; stdout is empty because the progress mode is not known yet.
+- Order of checks, before any output exists: spec validation (2), then `--out` (2), then data sets (3).
+
+### The stray stdout line (found and explained, 2026-10-24)
+
+Earlier a line "     Cr_sctns:  Glauber-Gribov Nucl-nucl: 0 eV  ---> 25.6 PeV" reached stdout even though
+G4cout was redirected. Reproduced with only the G4cout redirect installed (no descriptor redirect): one such
+line appears **per worker thread** (1 with 1 thread, 4 with 4), and none comes from the master. Pointing
+`std::cout` at stderr's buffer makes it disappear, so the line is written by Geant4 library code **directly
+to `std::cout`**, not through G4cout. The text exists in libG4physicslists and libG4processes_hadronic, and
+both import `std::cout`. It cannot be fixed in the Geant4 binaries (conda-forge); the fix is on our side:
+`StdoutChannel::capture()` redirects both std::cout and descriptor 1. A debugger breakpoint on write(2)
+did not work here (stdout is buffered when it is a pipe, so the write happens at flush time), so the exact
+function in Geant4 is not identified: UNCLEAR.
+
+### Cancel latency (macOS arm64, Release, example geometry, 5 GeV, 2 threads, 3000 events, 2026-10-24)
+
+Time from sending the signal to the end of the process, from tests/check_cancel.py:
+
+| Signal | When | Latency |
+|--------|------|---------|
+| SIGTERM | right after the first progress line (Geant4 still initialising) | 1353 to 1381 ms |
+| SIGTERM | mid-run (after at least 5 events written) | 35 and 36 ms |
+| SIGINT | mid-run | 31 and 34 ms |
+| second SIGTERM, 0.2 s after the first | during initialisation | 1 ms after the second signal; exit 4, no output, a `.run.partial-<pid>` folder remains (allowed by S4) |
+
+Geant4's soft abort works in multithreaded mode: each worker polls the flag after every event and calls
+AbortRun(true) on its own run manager, so each finishes the event in progress and starts no other. The long
+latency of the first case is the remaining Geant4 initialisation (the signal cannot interrupt it); the run is
+then not started. One machine, one geometry, 2 threads: not a promise.
+
+### Contract and document changes in this milestone
+
+- SIDECAR.md: `run` is implemented (status paragraph); `--threads N` added, default 1; order of checks; how
+  stdout is kept pure (section 2); how cancellation works and the measured latency (section 7); decisions S4,
+  S8, S10 marked decided, S12 added; `build_type` in the provenance key table (it changes provenance bytes,
+  not hits.arrow).
+- HITS.md section 9: "the same build" includes the build type.
+- README.md: `run`, the build type, consume_run.py.
+- Release is now the default build type (a decision of the owner); one comparison earlier (STATUS, Y6)
+  gave the same OID in Release and in an unoptimised build; every test passes in Release.
+
+### Found in the fresh-environment run: which Python the tests use
+
+In a fresh environment with Python 3.14, CMake's FindPython3 chose the system framework Python 3.14 over the
+environment's (equal versions; the first found wins), and the tests needing pyarrow, jsonschema and matplotlib
+failed ("No module named"). Earlier runs had the environment's Python 3.15 and hid this. CMake now looks
+for the interpreter in $CONDA_PREFIX/bin and the CMAKE_PREFIX_PATH entries first.
+
+### Not done / UNCLEAR
+
+- One-off slow test: in the first fresh-environment run (Python 3.14), the test "compare_particles.sh runs the
+  electron and the pion" took 1008 s (the other 149 tests took about 60 s together); it passed. Run again in a
+  recreated environment it took 15 s (cold) and 4 s (warm). A cold matplotlib font cache costs about 10 s here, so that
+  is not the explanation. Cause not found: UNCLEAR; ctest's default timeout is 1500 s, so such a stall would not fail it
+  but would be slow in CI.
+- Linux: the Linux branch of the no-overwrite rename (renameat2 through syscall) and everything else is
+  untested; CI is the first Linux run.
+- The INTERNAL path is covered by unit tests of the classification, not by a real fault in a real run.
+- A Geant4 fatal exception still aborts the process (exit 134, no JSON line): Geant4's own exception handler
+  was not replaced. Validation (materials, physics list, particle, gun start) makes this unlikely.
+- Windows (Ctrl-Break): specified, not built (S11).
+- A signal during initialisation is acted on only after it (about 1.4 s here).
+
 ## Versions (2026-10-22)
 
 Geant4 11.4.3 (newest 11.x available for both linux-64 and osx-arm64 on
