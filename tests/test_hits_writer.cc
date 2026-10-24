@@ -7,6 +7,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "byte_compare.hh"
 #include "cli_helpers.hh"
 #include "hits_writer.hh"
 #include "sha3_256.hh"
@@ -110,7 +111,7 @@ void compare_with_golden(const std::string& written, const std::string& golden_n
   INFO(kGoldenMessage);
   INFO("golden file " << golden_name << ": " << expected.size() << " bytes, written: " << actual.size()
                       << " bytes");
-  CHECK(actual == expected);
+  CHECK_SAME_BYTES(actual, expected);
 }
 
 }  // namespace
@@ -144,7 +145,11 @@ TEST_CASE("the same data gives the same bytes and the same OID", "[writer]")
   const cli::TempFile b("", ".arrow");
   const auto s1 = write_file(a.path(), small_dataset(), {"absorber", "active"}, 4);
   const auto s2 = write_file(b.path(), small_dataset(), {"absorber", "active"}, 4);
-  CHECK(read_file(a.path()) == read_file(b.path()));
+  {
+    const std::string first_file = read_file(a.path());
+    const std::string second_file = read_file(b.path());
+    CHECK_SAME_BYTES(first_file, second_file);
+  }
   CHECK(s1.oid == s2.oid);
   CHECK(s1.bytes == read_file(a.path()).size());
   CHECK(s1.oid == oid_of_bytes(read_file(a.path())));
