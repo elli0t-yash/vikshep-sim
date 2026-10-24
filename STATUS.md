@@ -387,7 +387,8 @@ provenance.json). The options as they were put:
       end-of-stream marker, hash computed while writing and checked by reading the file back
 - [x] provenance.json and run_summary.json (src/run_outputs.cc); data set versions from conda metadata
 - [x] Atomic output folder (src/run_pipeline.cc); `dev-run --out <dir>` (EXPERIMENTAL)
-- [x] Tests a to i, golden files, pyarrow checks; ctest 119 of 119 passed on macOS arm64 (2026-10-24)
+- [x] Tests a to i, golden files, pyarrow checks; ctest 119 of 119 passed on macOS arm64, also in a throwaway
+      environment created from environment.yml alone (2026-10-24)
 - [ ] `run` command (the same pipeline function, with the sidecar contract around it)
 - [ ] CI run (nothing is pushed), Linux
 
