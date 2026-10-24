@@ -15,6 +15,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include "byte_compare.hh"
 #include "cli_helpers.hh"
 #include "data_sets_guard.hh"
 #include "datasets_check.hh"
@@ -109,8 +110,8 @@ TEST_CASE("a and c: run writes the same folder as dev-run --out", "[run][geant4]
   const cli::Outcome b =
       cli::run("dev-run --threads 2 --spec \"" + spec.path() + "\" --out \"" + dir.out("dev") + "\"");
   REQUIRE(b.code == 0);
-  CHECK(read_file(dir.out("run") + "/hits.arrow") == read_file(dir.out("dev") + "/hits.arrow"));
-  CHECK(read_file(dir.out("run") + "/provenance.json") == read_file(dir.out("dev") + "/provenance.json"));
+  CHECK_SAME_BYTES(read_file(dir.out("run") + "/hits.arrow"), read_file(dir.out("dev") + "/hits.arrow"));
+  CHECK_SAME_BYTES(read_file(dir.out("run") + "/provenance.json"), read_file(dir.out("dev") + "/provenance.json"));
   CHECK(read_json(dir.out("run") + "/run_summary.json").at("oid") ==
         read_json(dir.out("dev") + "/run_summary.json").at("oid"));
 
@@ -151,8 +152,8 @@ TEST_CASE("f: 1 thread and 4 threads give identical output through run", "[run][
   const cli::Outcome four = run_run(spec.path(), dir.out("four"), "--threads 4 --progress jsonl");
   REQUIRE(one.code == 0);
   REQUIRE(four.code == 0);
-  CHECK(read_file(dir.out("one") + "/hits.arrow") == read_file(dir.out("four") + "/hits.arrow"));
-  CHECK(read_file(dir.out("one") + "/provenance.json") == read_file(dir.out("four") + "/provenance.json"));
+  CHECK_SAME_BYTES(read_file(dir.out("one") + "/hits.arrow"), read_file(dir.out("four") + "/hits.arrow"));
+  CHECK_SAME_BYTES(read_file(dir.out("one") + "/provenance.json"), read_file(dir.out("four") + "/provenance.json"));
   CHECK(lines_of(one.out).back().at("oid") == lines_of(four.out).back().at("oid"));
   CHECK(read_json(dir.out("one") + "/provenance.json").at("build_type") == "Release");  // the default
 }

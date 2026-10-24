@@ -140,6 +140,7 @@ add_executable(vikshep-tests
   tests/test_event_digest.cc
   tests/test_vendored.cc
   tests/test_sha3.cc
+  tests/test_byte_compare.cc
   tests/test_hits_writer.cc
   tests/test_run_outputs.cc
   tests/test_digests.cc
