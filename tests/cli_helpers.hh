@@ -64,6 +64,31 @@ class TempFile {
   std::filesystem::path path_;
 };
 
+// A fresh empty directory in the temporary directory, removed with everything in it.
+// out() is a path inside it that does not exist: a place for an output folder.
+class TempDir {
+ public:
+  TempDir()
+  {
+    static int counter = 0;
+    dir_ = std::filesystem::temp_directory_path() /
+           ("vikshep-test-dir-" + std::to_string(::getpid()) + "-" + std::to_string(counter++));
+    std::filesystem::create_directories(dir_);
+  }
+  ~TempDir()
+  {
+    std::error_code ec;
+    std::filesystem::remove_all(dir_, ec);
+  }
+  TempDir(const TempDir&) = delete;
+  TempDir& operator=(const TempDir&) = delete;
+  std::string path() const { return dir_.string(); }
+  std::string out(const std::string& name = "run") const { return (dir_ / name).string(); }
+
+ private:
+  std::filesystem::path dir_;
+};
+
 inline int line_count(const std::string& s)
 {
   int n = 0;

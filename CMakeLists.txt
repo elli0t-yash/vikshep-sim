@@ -54,6 +54,7 @@ add_library(vikshep_core STATIC
   src/build_info.cc
   src/hits_writer.cc
   src/run_outputs.cc
+  src/run_pipeline.cc
   src/sha3_256.cc
   src/spec_file.cc
   src/spec_validate.cc
@@ -93,9 +94,12 @@ add_executable(vikshep-tests
   tests/test_hits_writer.cc
   tests/test_run_outputs.cc
   tests/test_digests.cc
+  tests/test_outputs.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
 target_compile_definitions(vikshep-tests PRIVATE
+  VIKSHEP_PYTHON="${Python3_EXECUTABLE}"
+  VIKSHEP_TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests"
   VIKSHEP_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden"
   VIKSHEP_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/docs/examples"
   VIKSHEP_SIM_EXE="$<TARGET_FILE:vikshep-sim>"
