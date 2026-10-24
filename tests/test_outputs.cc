@@ -11,6 +11,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include "byte_compare.hh"
 #include "cli_helpers.hh"
 #include "datasets_check.hh"
 
@@ -116,8 +117,16 @@ TEST_CASE("a: the same spec and seed twice give identical outputs", "[outputs][g
   REQUIRE(run_out(small_spec(42), 2, dir.out("a")).code == 0);
   REQUIRE(run_out(small_spec(42), 2, dir.out("b")).code == 0);
   const fs::path a = dir.out("a"), b = dir.out("b");
-  CHECK(read_file(a / "hits.arrow") == read_file(b / "hits.arrow"));
-  CHECK(read_file(a / "provenance.json") == read_file(b / "provenance.json"));
+  {
+    const std::string hits_first_run = read_file(a / "hits.arrow");
+    const std::string hits_second_run = read_file(b / "hits.arrow");
+    CHECK_SAME_BYTES(hits_first_run, hits_second_run);
+  }
+  {
+    const std::string provenance_first_run = read_file(a / "provenance.json");
+    const std::string provenance_second_run = read_file(b / "provenance.json");
+    CHECK_SAME_BYTES(provenance_first_run, provenance_second_run);
+  }
   // run_summary.json holds the wall time and the thread count, which differ from run to
   // run (docs/SIDECAR.md, 5.2). Everything else must be identical.
   CHECK(stable_summary(a) == stable_summary(b));
@@ -132,8 +141,16 @@ TEST_CASE("b: 1 thread and 4 threads give identical outputs", "[outputs][geant4]
   REQUIRE(run_out(spec, 1, dir.out("one")).code == 0);
   REQUIRE(run_out(spec, 4, dir.out("four")).code == 0);
   const fs::path one = dir.out("one"), four = dir.out("four");
-  CHECK(read_file(one / "hits.arrow") == read_file(four / "hits.arrow"));
-  CHECK(read_file(one / "provenance.json") == read_file(four / "provenance.json"));  // no thread count in it
+  {
+    const std::string hits_one_thread = read_file(one / "hits.arrow");
+    const std::string hits_four_threads = read_file(four / "hits.arrow");
+    CHECK_SAME_BYTES(hits_one_thread, hits_four_threads);
+  }
+  {
+    const std::string provenance_one_thread = read_file(one / "provenance.json");
+    const std::string provenance_four_threads = read_file(four / "provenance.json");
+    CHECK_SAME_BYTES(provenance_one_thread, provenance_four_threads);
+  }  // no thread count in it
   CHECK(stable_summary(one) == stable_summary(four));
   CHECK(read_json(one / "run_summary.json").at("threads") == 1);
   CHECK(read_json(four / "run_summary.json").at("threads") == 4);
@@ -208,8 +225,11 @@ TEST_CASE("f: a run without any hit gives a valid file and the right counts", "[
   CHECK(summary.at("hits_total") == 0);
   // The file holds the schema and the dictionary and nothing else: it is the same
   // for every zero-hit run with sensitive ["active"].
-  CHECK(read_file(fs::path(dir.out()) / "hits.arrow") ==
-        read_file(fs::path(VIKSHEP_GOLDEN_DIR) / "hits_empty.arrow"));
+  {
+    const std::string produced = read_file(fs::path(dir.out()) / "hits.arrow");
+    const std::string golden_empty = read_file(fs::path(VIKSHEP_GOLDEN_DIR) / "hits_empty.arrow");
+    CHECK_SAME_BYTES(produced, golden_empty);
+  }
   const cli::Outcome check = check_folder(dir.out(), "active");
   INFO(check.out);
   CHECK(check.code == 0);

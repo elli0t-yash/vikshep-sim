@@ -47,3 +47,40 @@ jobs:
 
       - name: Repository rules
         run: scripts/check-rules.sh
+
+  uninitialised-memory:
+    name: valgrind (ubuntu, unoptimised)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: mamba-org/setup-micromamba@v3
+        with:
+          environment-file: environment.yml
+          cache-environment: true
+
+      - name: Install valgrind
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq valgrind libc6-dbg
+
+      # No build type and -g: the configuration in which uninitialised padding
+      # in the footer reached hits.arrow (third_party/nanoarrow/PATCHES.md).
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_C_FLAGS=-g -DCMAKE_CXX_FLAGS=-g \
+            -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" \
+            -DCMAKE_FIND_FRAMEWORK=LAST
+
+      - name: Build the unit tests
+        run: cmake --build build --target vikshep-tests
+
+      # Writer, golden-file and stack-poisoning tests; any report of an
+      # uninitialised value fails the job (--error-exitcode).
+      - name: Writer tests under valgrind
+        run: |
+          cd build
+          valgrind --track-origins=yes --error-exitcode=9 --leak-check=no -q \
+            ./vikshep-tests '[golden],[writer],[uninitialised]'
