@@ -13,13 +13,22 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Geant4 REQUIRED)
-
-foreach(_flags "${CMAKE_C_FLAGS}" "${CMAKE_CXX_FLAGS}" "${CMAKE_C_FLAGS_RELEASE}" "${CMAKE_CXX_FLAGS_RELEASE}")
-  if(_flags MATCHES "fast-math|Ofast")
-    message(FATAL_ERROR "-ffast-math / -Ofast are not allowed: they change floating-point results")
+# Floating-point results must not depend on what the optimiser may do to them: refuse the options
+# that let it change them. (tests/check_fast_math.py checks that this fails, and that the real
+# compile commands contain none of them.) Done before anything is searched, so it fails at once.
+foreach(_flags "${CMAKE_C_FLAGS}" "${CMAKE_CXX_FLAGS}" "${CMAKE_C_FLAGS_RELEASE}" "${CMAKE_CXX_FLAGS_RELEASE}"
+               "${CMAKE_C_FLAGS_RELWITHDEBINFO}" "${CMAKE_CXX_FLAGS_RELWITHDEBINFO}")
+  if(_flags MATCHES "fast-math|Ofast|unsafe-math|finite-math-only|associative-math")
+    message(FATAL_ERROR
+      "-ffast-math, -Ofast and related options are not allowed: they change floating-point results "
+      "(found in: ${_flags})")
   endif()
 endforeach()
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+find_package(Geant4 REQUIRED)
+
+
 find_package(CLI11 REQUIRED)
 find_package(nlohmann_json REQUIRED)
 
@@ -203,6 +212,11 @@ foreach(_threads 1 4)
   )
   set_tests_properties(run_stdout_stream_${_threads}_threads PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
 endforeach()
+
+add_test(NAME fast_math_is_refused_and_absent
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_fast_math.py
+          ${CMAKE_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_BINARY_DIR}
+)
 
 add_test(NAME schema_matches_validator
   COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_schema.py
