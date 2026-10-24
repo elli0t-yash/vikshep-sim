@@ -10,6 +10,7 @@
 #include "commands.hh"
 #include "errors.hh"
 #include "failure.hh"
+#include "geant4_errors.hh"
 #include "progress.hh"
 #include "run_pipeline.hh"
 #include "spec_file.hh"
@@ -47,6 +48,7 @@ int run_run(const std::string& spec_path, const std::string& out_dir, int thread
   // First of all: take stdout for the channel, so nothing else can reach it.
   StdoutChannel::capture();
   cancellation::install_handlers();
+  enable_run_exception_handler(jsonl);  // a fatal Geant4 exception becomes SIMULATION_FAILED, exit 1
   Emitter emitter(jsonl);
 
   try {

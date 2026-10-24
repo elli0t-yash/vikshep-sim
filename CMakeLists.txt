@@ -75,6 +75,7 @@ add_library(vikshep_core STATIC
   src/build_info.cc
   src/cancellation.cc
   src/failure.cc
+  src/geant4_errors.cc
   src/hits_writer.cc
   src/run_outputs.cc
   src/run_pipeline.cc
@@ -139,6 +140,7 @@ add_executable(vikshep-tests
   tests/test_channel.cc
   tests/test_progress.cc
   tests/test_run.cc
+  tests/test_g4_fatal.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
 target_compile_definitions(vikshep-tests PRIVATE

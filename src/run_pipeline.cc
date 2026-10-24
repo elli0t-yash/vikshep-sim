@@ -10,6 +10,7 @@
 
 #include "atomic_rename.hh"
 #include "datasets_check.hh"
+#include "geant4_errors.hh"
 #include "run_outputs.hh"
 #include "spec_canonical.hh"
 
@@ -21,9 +22,13 @@ namespace {
 // Removes the temporary folder unless released.
 class FolderGuard {
  public:
-  explicit FolderGuard(fs::path folder) : folder_(std::move(folder)) {}
+  explicit FolderGuard(fs::path folder) : folder_(std::move(folder))
+  {
+    set_cleanup_folder(folder_.string());  // so a fatal Geant4 exception can remove it too
+  }
   ~FolderGuard()
   {
+    clear_cleanup_folder();
     if (active_) {
       std::error_code ec;
       fs::remove_all(folder_, ec);  // best effort: nothing more can be done in a destructor

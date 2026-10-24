@@ -199,7 +199,7 @@ MUST handle an unknown code by falling back to the exit code.
 | DATASETS_MISSING | Geant4 data sets needed by the spec's physics list are not available |
 | GEOMETRY_ERROR | the geometry (template or GDML) cannot be built |
 | OUTPUT_NOT_WRITABLE | creating or writing the temporary folder, or the final rename, failed |
-| SIMULATION_FAILED | Geant4 reported a fatal error during the run |
+| SIMULATION_FAILED | Geant4 reported a fatal error during the run: a G4Exception of severity FatalException, FatalErrorInArgument, RunMustBeAborted or EventMustBeAborted, on any thread. The run stops at once, exactly one error line is written (the message is short; origin, code and text of the Geant4 exception are on stderr), the temporary output folder is removed, and the process ends with exit code 1 without a core dump. Geant4 warnings (JustWarning) are written to stderr and the run goes on |
 | INTERNAL | any other failure of the program itself |
 | CANCELLED | the run was cancelled (section 7) |
 
