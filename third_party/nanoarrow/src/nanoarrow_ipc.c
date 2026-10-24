@@ -30280,12 +30280,15 @@ ArrowErrorCode ArrowIpcEncoderEncodeFooter(struct ArrowIpcEncoder* encoder,
       ns(Footer_recordBatches_extend(builder, _ArrowInt64ToSizeT(n_blocks)));
   FLATCC_RETURN_IF_NULL(flatcc_RecordBatch_blocks, error);
   for (int64_t i = 0; i < n_blocks; i++) {
-    struct ns(Block) block = {
-        blocks[i].offset,
-        blocks[i].metadata_length,
-        blocks[i].body_length,
-    };
-    flatcc_RecordBatch_blocks[i] = block;
+    // vikshep-sim patch 1 (third_party/nanoarrow/PATCHES.md): zero the destination first. The
+    // Block struct has 4 bytes of padding after metaDataLength; a brace initialiser leaves them
+    // indeterminate and they were copied into the footer, so the bytes of the file changed from
+    // build to build.
+    struct ns(Block)* block = &flatcc_RecordBatch_blocks[i];
+    memset(block, 0, sizeof(*block));
+    block->offset = blocks[i].offset;
+    block->metaDataLength = blocks[i].metadata_length;
+    block->bodyLength = blocks[i].body_length;
   }
   FLATCC_RETURN_UNLESS_0(Footer_recordBatches_end(builder), error);
 
@@ -30299,12 +30302,12 @@ ArrowErrorCode ArrowIpcEncoderEncodeFooter(struct ArrowIpcEncoder* encoder,
       ns(Footer_dictionaries_extend(builder, _ArrowInt64ToSizeT(n_dict_blocks)));
   FLATCC_RETURN_IF_NULL(flatcc_dict_blocks, error);
   for (int64_t i = 0; i < n_dict_blocks; i++) {
-    struct ns(Block) block = {
-        dict_blocks[i].offset,
-        dict_blocks[i].metadata_length,
-        dict_blocks[i].body_length,
-    };
-    flatcc_dict_blocks[i] = block;
+    // vikshep-sim patch 1: see above.
+    struct ns(Block)* block = &flatcc_dict_blocks[i];
+    memset(block, 0, sizeof(*block));
+    block->offset = dict_blocks[i].offset;
+    block->metaDataLength = dict_blocks[i].metadata_length;
+    block->bodyLength = dict_blocks[i].body_length;
   }
   FLATCC_RETURN_UNLESS_0(Footer_dictionaries_end(builder), error);
 
