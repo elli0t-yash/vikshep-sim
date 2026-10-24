@@ -2,20 +2,30 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, "y[0-9]*/**"]
   pull_request:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # CI must never go green by skipping. A Geant4 test that would skip because the Geant4 data
+  # sets are missing fails instead (tests/data_sets_guard.hh, tests/vikshep_testlib.py).
+  VIKSHEP_REQUIRE_DATA: "1"
+
 jobs:
   build:
     name: build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14]
+        os: [ubuntu-latest, macos-latest]
     defaults:
       run:
         shell: bash -el {0}
@@ -24,10 +34,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: mamba-org/setup-micromamba@v3
+      # The environment (Geant4 and its data sets come from the conda packages geant4 and
+      # geant4-data-*, which environment.yml pulls in) is cached. The key contains the hash of
+      # environment.yml, so changing the file makes a new cache; the action adds the operating
+      # system and a hash of its own inputs.
+      - name: Set up the environment
+        uses: mamba-org/setup-micromamba@v3
         with:
           environment-file: environment.yml
           cache-environment: true
+          cache-environment-key: env-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('environment.yml') }}
+          cache-downloads: false
+
+      - name: Environment
+        run: |
+          micromamba list | grep -E "^ *(geant4|python|pyarrow|matplotlib|cmake|clang|gxx|libstdcxx) " || true
+          echo "Geant4 data set variables set: $(env | grep -c '^G4.*DATA=')"
+          echo "VIKSHEP_REQUIRE_DATA=$VIKSHEP_REQUIRE_DATA"
 
       - name: Configure
         run: |
@@ -40,10 +63,43 @@ jobs:
         run: cmake --build build
 
       - name: Tests
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure --output-junit "$PWD/ctest-junit.xml"
+
+      # Counts of tests run, passed, failed and skipped, in the job summary. Fails if any test was
+      # skipped or none ran (a skipped Geant4 test already fails on its own, VIKSHEP_REQUIRE_DATA).
+      - name: Test counts
+        if: always() && hashFiles('ctest-junit.xml') != ''
+        run: python scripts/ci_summary.py ctest-junit.xml "${{ matrix.os }}" >> "$GITHUB_STEP_SUMMARY"
+
+      # Evidence for the platform-specific behaviour, in the log of this job: which rename call is
+      # used, that the signal and cancellation tests pass, that stdout stays pure JSON (the
+      # std::cout workaround), and the determinism tests (thread count, repetition).
+      - name: Evidence (rename, signals, stdout, determinism)
+        run: |
+          ctest --test-dir build -V --timeout 120 -R "rename_no_replace|channel|run_cancellation_by_signal|run_stdout_stream|identical|independent of|same spec and seed twice|a different seed" 2>&1 \
+            | grep -E "rename|atomic|PASS|FAIL|Passed|Failed|Test +#|tests passed|stdout|signal|latency|identical" | head -150
 
       - name: Info as valid JSON
         run: ./build/vikshep-sim info --json | python -m json.tool
 
       - name: Repository rules
         run: scripts/check-rules.sh
+
+      # The example spec, run through `run`, on this platform: its OID goes into the job summary
+      # with a note, and the picture of event 0 and provenance.json are kept as artifacts.
+      - name: Example run, plot and platform note
+        run: |
+          mkdir -p ci-artifacts
+          ./build/vikshep-sim run --spec docs/examples/calorimeter.json --out ci-run --threads 2 --progress none
+          python scripts/plot_event.py ci-run --event 0 --out ci-artifacts/shower.png
+          cp ci-run/provenance.json ci-artifacts/provenance.json
+          python scripts/ci_platform_note.py ci-run "${{ matrix.os }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the picture and the provenance
+        uses: actions/upload-artifact@v7
+        with:
+          name: calorimeter-example-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            ci-artifacts/shower.png
+            ci-artifacts/provenance.json
+          if-no-files-found: error
