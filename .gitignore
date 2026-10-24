@@ -17,3 +17,6 @@ cmake-build-*/
 # OS
 .DS_Store
 Thumbs.db
+
+# output of scripts/compare_particles.sh when run in the repository
+compare_particles_out/

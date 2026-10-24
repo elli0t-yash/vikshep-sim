@@ -467,6 +467,25 @@ provenance.json). The options as they were put:
   appears, switching is a writer_scheme change if the bytes differ (the golden test will say).
 - pyarrow is the only reader the output was checked with.
 
+## Y6b: plotting a run (branch y6b/plot)
+
+- [x] scripts/plot_event.py: one event of a run folder, hits in the z-y plane (mm) over the layer outline
+      (marker area proportional to edep, MeV), energy per layer (MeV) for the event and the mean over all
+      events; several run folders give one column per run. Geometry from the canonical spec in provenance.json.
+      The file is read batch by batch, so a large hits.arrow is not held in memory.
+- [x] scripts/compare_particles.sh: runs docs/examples/electron_shower.json and pion_shower.json
+      (new; the README had no specs for them), writes electron.png, pion.png and compare.png.
+- [x] Tests (tests/test_plot.cc): PNG is non-empty and a real PNG, last event, two runs side by side, a run
+      without hits, error messages, and the compare script end to end. They skip with a message when data sets
+      are missing (checked with G4LEDATA unset). ctest 125 of 125 passed on macOS arm64 (2026-10-24).
+- matplotlib added to environment.yml.
+- Observation (2026-10-24, 5 GeV, 20 events, seed 42, both slab types sensitive): electron: 252,412 hits, mean
+  fraction of the incident energy deposited 0.945 +- 0.003, OID 2180f381ce92c24afd6fe795810b. pion (pi-):
+  25,407 hits, fraction 0.158 +- 0.054, OID 704ec8b25b180937e482c020614e. The stack is about 18 radiation
+  lengths but under one hadronic interaction length of lead, so most pions cross it as minimum-ionising
+  particles and a few interact: the energy per layer of a single pion event is lumpy and the mean over events is flat.
+  A statement about these 20 events, not a measurement of hadronic response.
+
 ## Versions (2026-10-22)
 
 Geant4 11.4.3 (newest 11.x available for both linux-64 and osx-arm64 on

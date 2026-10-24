@@ -96,6 +96,39 @@ ctest --test-dir build --output-on-failure
 - docs/HITS.md: the hits.arrow format.
 - docs/SIDECAR.md: the command-line contract with the desktop app.
 
+## Plotting a run
+
+`scripts/plot_event.py` draws one event of a run folder (needs pyarrow and
+matplotlib, which are in `environment.yml`): the hits in the z-y plane over an outline
+of the layers (marker area proportional to the energy deposited), and the energy
+deposited per layer for that event and the mean over all events. Axes and titles
+state their units (mm, MeV). The geometry is read from `provenance.json`.
+
+```sh
+./build/vikshep-sim dev-run --spec docs/examples/electron_shower.json --out electron_run
+python scripts/plot_event.py electron_run --event 0 --out shower.png
+```
+
+Several run folders give one column per run, for comparing runs side by side:
+`python scripts/plot_event.py electron_run pion_run --event 0 --out compare.png`.
+
+Only hits in the sensitive volumes are in `hits.arrow`, so "energy" means the energy
+deposited in those volumes (the two example specs below record both slab types).
+
+### Electron and pion
+
+`docs/examples/electron_shower.json` and `docs/examples/pion_shower.json` are the same
+experiment (10 layers of 10 mm Pb and 5 mm liquid argon, 5 GeV, 20 events, seed 42,
+both slab types sensitive) with an electron and a negative pion as the beam particle.
+
+```sh
+scripts/compare_particles.sh compare_out      # runs both, writes electron.png, pion.png, compare.png
+```
+
+The script refuses to write into a folder that already exists. It expects the program
+at `build/vikshep-sim` (set `VIKSHEP_SIM` for another path) and the environment to be
+active.
+
 ## Rules check
 
 ```sh
