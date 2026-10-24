@@ -105,9 +105,11 @@ What was built:
   Reference values are pinned in tests/test_event_seed.cc.
 - A reorder buffer (`src/reorder_buffer.hh`) so that hits leave the simulation in
   event order whatever order the threads finish in.
-- The gun draws no random numbers, so reseeding at the start of the event action
-  comes before any draw. If a future gun draws numbers, its code must run after
-  the reseeding.
+- The reseeding is the first step of GeneratePrimaries(), so it comes before any
+  draw, including draws by the gun itself. (An earlier version reseeded in the
+  event action, which relied on the gun drawing nothing.) A test-only gun that draws
+  a random number gives the same number for 1 and 4 threads
+  (tests/check_random_gun.py).
 - Measured on CLHEP's MixMax engine: the upper 32 bits of the second seed are
   ignored (tests/test_event_seed.cc), so the second seed is defined as a 32-bit
   value.

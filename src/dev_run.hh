@@ -38,9 +38,15 @@ struct DevRunResult {
 // finishes quickly and run_dev_simulation() rethrows the first exception.
 using EventConsumer = std::function<void(EventHits&&)>;
 
+// Test hook: called with the event id on the worker thread, right after the
+// event's random engine was seeded and before the gun fires. A test can draw a
+// random number there to check that it is independent of the thread count.
+using AfterSeeding = std::function<void(std::uint64_t event_id)>;
+
 // resolved_spec: output of resolve_spec(). Nothing is written to stdout;
 // Geant4's own output goes to stderr. Hits are recorded in the volumes listed in
 // the spec's `sensitive` field and passed to consumer (if any). The energy table
 // in the result covers both slab types regardless of `sensitive`.
 DevRunResult run_dev_simulation(const nlohmann::json& resolved_spec, int threads,
-                                const EventConsumer& consumer = nullptr);
+                                const EventConsumer& consumer = nullptr,
+                                const AfterSeeding& after_seeding = nullptr);

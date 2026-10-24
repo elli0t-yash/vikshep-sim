@@ -77,7 +77,10 @@ micromamba install -n vikshep-sim -c conda-forge geant4-data-emlow   # example
   the sidecar contract. It runs the spec in Geant4 and prints, on stdout, the
   mean energy deposited per layer in the absorber and in the active slab, the
   mean total and the mean fraction of the incident energy. Geant4's own output
-  goes to stderr. It will be replaced by `run`.
+  goes to stderr. It will be replaced by `run`. With `--out <folder>` it also writes
+  `hits.arrow`, `provenance.json` and `run_summary.json` (docs/HITS.md, docs/SIDECAR.md,
+  section 5) into a new folder, atomically, and prints the OID; the folder must not
+  exist. `--event-digests <file>` writes one fingerprint line per event.
 - `vikshep-sim run` and `vikshep-sim datasets` are stubs. They print
   "not implemented" to stderr and exit with code 2.
 

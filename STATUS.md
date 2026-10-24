@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-10-23 (UTC, from date -u).
+Last updated: 2026-10-24 (UTC, from date -u).
 
 ## Milestone Y1: skeleton, CLI and CI
 
@@ -329,6 +329,144 @@ directory name must be enough; provenance should say which source it used.
   for could not be used: scripts/check-rules.sh rejects the product name in files (rule: no AI
   attribution in files).
 
+## nanoarrow spike (2026-10-24, Y6 step 1): decided, option 1
+
+Question: can nanoarrow's IPC component write hits.arrow as docs/HITS.md describes it? Spike program
+and checks: tools/nanoarrow_spike (outside the build). Two versions of the same library were tried;
+both were bundled with nanoarrow's own `ci/scripts/bundle.py --with-ipc --with-flatcc` and checked
+with pyarrow 25.0.0 (macOS arm64).
+
+| Criterion | nanoarrow 0.9.0 (release, 2026-07-31) | nanoarrow main@41c78c47 ("0.10.0-SNAPSHOT", 2026-10-24) |
+|-----------|----------------------------------------|---------------------------------------------------------|
+| writes the HITS.md schema with a dictionary-encoded `volume` | **FAILS**: `ArrowIpcWriterWriteArrayView` returns 45 "Cannot encode dictionary arrays"; the release has no function that writes a dictionary batch | passes (`ArrowIpcWriterWriteDictionaryBatch`, added 2026-09-08, file support fixed 2026-10-21) |
+| pyarrow opens it: schema, dictionary, values | not reachable (a schema without the dictionary column does write and read) | passes: 16 columns in order, uint64/int32/float64 types, `dictionary<int32, utf8>` with ["absorber", "active"], non-nullable, field metadata `unit` (mm, ns, MeV, MeV/c), schema metadata `vikshep.hits.schema_version = "1.0"`, 200000 rows in batches 65536, 65536, 65536, 3392 |
+| two writes byte-identical | n/a | passes: three writes (two seconds apart) are the same 20006370 bytes |
+| no timestamps or other non-deterministic metadata | n/a | passes: the only printable strings in the file are the column names, `unit`, the unit values, the schema metadata key and value, and the dictionary values |
+| zero-batch file opens in pyarrow | n/a | passes: 0 batches, 16 columns, 0 rows; the file holds the schema and the dictionary message |
+| dictionary written exactly once | n/a | passes: messages are schema, dictionary, 4 record batches; pyarrow stats: 1 dictionary batch, 0 deltas, 0 replaced |
+| buffer alignment (D5) | n/a | 8 bytes (a 101-row batch body is exactly 10128 bytes = 7 int32 columns padded to 408 bytes plus 9 8-byte columns), no compression, zero-length validity buffers, no nulls |
+
+Further findings on `main`:
+
+- It writes **no end-of-stream marker** before the footer unless asked. The format description puts
+  `0xFFFFFFFF 00000000` there. pyarrow reads the file anyway (it uses the footer), but a stricter
+  reader might not. Calling `ArrowIpcWriterWriteArrayView(writer, NULL)` before
+  `ArrowIpcWriterFinalizeFile` writes it; with it, every check above still passes and the streaming
+  message reader stops cleanly at the marker.
+- The `main` code was released nowhere; it is 39 commits after 0.9.0. The dictionary writer is about
+  seven weeks old, and the file-writing fix for dictionaries three days old. Its API may still change.
+
+DECISION (2026-10-24): option 1 was chosen by the owner: nanoarrow `main` at commit
+41c78c476817d1d122acc59ddacb7a3cbd00644c is vendored in third_party/nanoarrow, with safeguards
+(end-of-stream marker, golden-file test, nanoarrow version, commit and writer_scheme in
+provenance.json). The options as they were put:
+
+1. Pin nanoarrow `main` at commit 41c78c476817d1d122acc59ddacb7a3cbd00644c (tarball sha256
+   418bd978ad204d57972ec8b32369a9a12071b0d2b7adb2f15ec83db819e2a5dc), same library, unreleased. All
+   criteria pass. Risk: an unreleased snapshot with a young code path; the version recorded in
+   provenance would be "0.10.0-SNAPSHOT" plus the commit.
+2. Wait for the nanoarrow release that contains the dictionary writer, and pin that.
+3. Stay on 0.9.0 and write the missing dictionary-batch message ourselves with its encoder pieces.
+   Not tried; it means maintaining encoder code that upstream already has on `main`.
+4. A different writer (for example a small purpose-built one, or Arrow C++). Not evaluated; needs the
+   owner's approval first.
+5. Change HITS.md so that `volume` is a plain utf8 column (decision D6's alternative). 0.9.0 would then
+   work, at the cost of repeating the name in every row (not measured) and a format change before it
+   is frozen.
+
+
+## Milestone Y6: hits.arrow, OID, provenance.json, run_summary.json, output folder
+
+- [x] Per-event reseed moved to the start of GeneratePrimaries (nothing random can run before it);
+      pinned seed values unchanged; a test-only gun that draws a random number gives the same number
+      for 1 and 4 threads (tests/check_random_gun.py)
+- [x] nanoarrow vendored at a pinned commit (third_party/nanoarrow, README there), Apache-2.0 licences
+      and the bundled flatcc licence kept, credited in NOTICE
+- [x] SHA3-256: tiny_sha3 (MIT) vendored in third_party/tiny_sha3, official test vectors pass
+- [x] Hits writer (src/hits_writer.cc): streams rows into 65536-row batches, dictionary written once,
+      end-of-stream marker, hash computed while writing and checked by reading the file back
+- [x] provenance.json and run_summary.json (src/run_outputs.cc); data set versions from conda metadata
+- [x] Atomic output folder (src/run_pipeline.cc); `dev-run --out <dir>` (EXPERIMENTAL)
+- [x] Tests a to i, golden files, pyarrow checks; ctest 119 of 119 passed on macOS arm64, also in a throwaway
+      environment created from environment.yml alone (2026-10-24)
+- [ ] `run` command (the same pipeline function, with the sidecar contract around it)
+- [ ] CI run (nothing is pushed), Linux
+
+### What the writer does, and the safeguards
+
+- Writer scheme 1 = nanoarrow main@41c78c47 used as in src/hits_writer.cc: dictionary batch written
+  once after the schema, record batches of 65536 rows, end-of-stream marker written explicitly before the
+  footer, 8-byte alignment (measured), no compression, no nulls, zero-length validity buffers.
+- Golden-file test (tests/test_hits_writer.cc): a fixed dataset (10 rows in batches of 4, both volumes, two
+  hit-free events) and a file with no hits are compared byte for byte with tests/golden/*.arrow. The failure
+  message says that a writer change alters every OID and requires bumping writer_scheme, and how to
+  regenerate. The golden files are also read by tests/check_golden.py with pyarrow, which recomputes
+  the expected values from the dataset independently, and their OIDs come from hashlib.sha3_256.
+- provenance.json records nanoarrow.version, nanoarrow.commit and writer_scheme (HITS.md 6.1).
+- Memory: a batch of 65536 rows is about 6.5 MB, built in place and written when full; with the reorder
+  window (16 x threads + 16 events) memory is bounded by the window plus one batch.
+- Hit-free events are absent from the file and counted (events_without_hits).
+
+### Measurements (2026-10-24, macOS arm64, 4 threads, example spec with 1000 events, default sensitive ["active"])
+
+- hits: 1,331,469 rows in 21 record batches, 133,168,522 bytes: **133.2 MB per 1000 events** (about
+  100 bytes per row, about 1331 rows per event). OID a80a67e6474b21bda7066264e2a9.
+- Wall time: 4.19 s without --out, 7.67 s with --out (this build has no optimisation flags, see below).
+  tiny_sha3 hashes about 239 MiB/s at -O2 (127 MiB in 0.53 s, one pass); the hash is computed twice (while
+  writing, and when verifying), and writing and hashing happen in the single consumer thread. Python's
+  hashlib needs 0.13 s for the same file. Not tuned.
+- Build type: the default build has no CMAKE_BUILD_TYPE, so no optimisation. A Release build gave the
+  **identical OID** for the same spec and seed on this machine (a80a67e6474b21bda7066264e2a9) and ran
+  faster: 3.21 s without --out and 4.65 s with --out. One comparison on one machine, not a guarantee that
+  compiler flags never change the bytes. Whether to make Release the default is left to the owner.
+
+### Uninitialised padding in the footer (found 2026-10-24, Linux x86-64, gcc 15.3, no optimisation)
+
+- The golden file and two determinism tests failed on the Ubuntu CI job of PR 6. Cause: the vendored
+  nanoarrow copied a stack-allocated `Block` struct (4 bytes of padding) into the Arrow footer. On gcc
+  without optimisation the padding held stack bytes (`55 55 00 00`, `ff 7f 00 00`), so the bytes of
+  hits.arrow, and the OID, depended on the stack. valgrind showed it ("Syscall param write(buf) points to
+  uninitialised byte(s)", created by a stack allocation in `ArrowIpcEncoderEncodeFooter`).
+- Fix: patch 1 in `third_party/nanoarrow/PATCHES.md` (zero the destination before filling it). The golden
+  files are unchanged; `kWriterScheme` stays 1.
+- Guards: a test that fills the stack with 0x00/0x55/0xAA/0xFF around each writer call (fails without the
+  patch on gcc, Linux), and a CI job that runs the writer tests under valgrind on an unoptimised build.
+- Release: the Release (-O3) build on Linux was clean under valgrind and wrote zeros before the patch, but
+  that was luck of the optimiser; it was not guaranteed, and the OID of a file from an affected build
+  would have been wrong in the same way.
+
+### Contract and document changes in this milestone
+
+- HITS.md: D5 decided (8 bytes, measured); end-of-stream marker rule; new section 6.1 (nanoarrow version,
+  commit, writer_scheme, seeding_scheme in provenance.json); 4.2 notes that reseeding is the first step of
+  generating the primaries.
+- SIDECAR.md 5.1: provenance.json keys listed in full. `spec_oid` is now defined as the OID of the
+  canonical spec (it said: of the bytes of the spec file), to agree with SPEC.md section 4. This is a
+  change to the contract text; nothing produced it before.
+- run_summary.json is as in SIDECAR.md 5.2. It holds wall_time_s and threads, so the tests compare it
+  without those two keys (the prompt asked for byte-identical run_summary.json; that cannot hold with them).
+- NOTICE credits nanoarrow, flatcc and tiny_sha3.
+- environment.yml: pyarrow added (used by the tests only).
+
+### Notes for the next prompt (`run`)
+
+- run_to_folder() (src/run_pipeline.hh) is the function `run` should call. It throws OutputError with
+  code OUTPUT_EXISTS / OUTPUT_NOT_WRITABLE; dev-run maps OUTPUT_EXISTS to exit 2 and prints an error line.
+- Not done: progress lines (jsonl), SIGTERM cancellation, optional geometry.glb and trajectories.json,
+  the DATASETS_MISSING check inside the pipeline (dev-run does it before calling it).
+- The temporary folder is ".<name>.partial-<pid>" next to --out. A process killed by SIGKILL leaves it
+  behind (documented in SIDECAR.md 5.3). The final rename checks twice that the target is absent; a
+  window of a few microseconds remains between the check and the rename.
+- The reorder-buffer consumer runs the writer on a worker thread, one event at a time.
+
+### Open at the end of Y6 (UNCLEAR)
+
+- Linux and CI: nothing here has run on Linux. The golden files assume IEEE doubles and
+  little-endian; tiny_sha3 has a big-endian path that was not exercised.
+- The vendored nanoarrow is an unreleased snapshot; when a release containing the dictionary writer
+  appears, switching is a writer_scheme change if the bytes differ (the golden test will say).
+- pyarrow is the only reader the output was checked with.
+
 ## Versions (2026-10-22)
 
 Geant4 11.4.3 (newest 11.x available for both linux-64 and osx-arm64 on
@@ -443,15 +581,12 @@ nanoarrow on conda-forge at this date is 0.9.0 (GitHub release dated
 
 Relevant details from the same header:
 
-- Dictionaries: `ArrowIpcWriterWriteDictionaryBatch()` writes one dictionary
-  batch. In file mode it returns ENOTSUP for a delta or for a dictionary id
-  that was already written ("IPC files do not support dictionary replacement").
-  This agrees with the single, non-delta dictionary in HITS.md section 1.2.
-- `ArrowIpcWriterWriteArrayViewWithDictionaries()` writes the dictionaries
-  before every batch, so in file mode only one batch can be written that way.
-  Writing many batches presumably means writing the dictionary once with
-  `WriteDictionaryBatch()` and the index batches with `WriteArrayView()`.
-  UNCLEAR: not tried; it is an inference from the header comments.
+- CORRECTION (2026-10-24): the three bullets above about `ArrowIpcWriterWriteDictionaryBatch()` and
+  `ArrowIpcWriterWriteArrayViewWithDictionaries()` were read from the header on nanoarrow's `main`
+  branch, not from the 0.9.0 release. Those two functions do **not** exist in 0.9.0. See "nanoarrow
+  spike" below. (StartFile and FinalizeFile are in 0.9.0; that part was right.)
+- Dictionaries (as found on `main`, not in 0.9.0): `ArrowIpcWriterWriteDictionaryBatch()` writes one
+  dictionary batch; in file mode it returns ENOTSUP for a delta or a dictionary id written before.
 - Compression: the extension lists ZSTD and LZ4 codecs; HITS.md requires none.
 
 UNCLEAR, not tested: whether the bytes it produces meet every rule in HITS.md

@@ -211,7 +211,8 @@ struct GunConfig {
 
 class PrimaryGenerator : public G4VUserPrimaryGeneratorAction {
  public:
-  explicit PrimaryGenerator(const GunConfig& config) : gun_(1)
+  PrimaryGenerator(const GunConfig& config, std::uint64_t spec_seed, const AfterSeeding& after_seeding)
+      : gun_(1), spec_seed_(spec_seed), after_seeding_(after_seeding)
   {
     G4ParticleDefinition* particle = G4ParticleTable::GetParticleTable()->FindParticle(config.particle);
     if (particle == nullptr) {
@@ -223,25 +224,34 @@ class PrimaryGenerator : public G4VUserPrimaryGeneratorAction {
     gun_.SetParticleMomentumDirection(config.direction);
   }
 
-  void GeneratePrimaries(G4Event* event) override { gun_.GeneratePrimaryVertex(event); }
+  void GeneratePrimaries(G4Event* event) override
+  {
+    // The random stream of an event depends only on (spec seed, global event
+    // id) (docs/HITS.md, section 4.2). This is the first thing that happens for
+    // an event that can use random numbers, so reseeding here comes before any
+    // draw, including draws by a gun. Geant4 has already seeded this thread's
+    // engine from its own queue; this overwrites that, so the requirement holds
+    // by construction and does not rest on how G4MTRunManager hands out seeds.
+    const std::uint64_t event_id = static_cast<std::uint64_t>(event->GetEventID());
+    seed_event_engine(spec_seed_, event_id);
+    if (after_seeding_) {
+      after_seeding_(event_id);  // test hook
+    }
+    gun_.GeneratePrimaryVertex(event);
+  }
 
  private:
   G4ParticleGun gun_;
+  std::uint64_t spec_seed_;
+  AfterSeeding after_seeding_;
 };
 
 class EventAction : public G4UserEventAction {
  public:
   explicit EventAction(SharedResults* shared) : shared_(shared) {}
 
-  void BeginOfEventAction(const G4Event* event) override
+  void BeginOfEventAction(const G4Event*) override
   {
-    // The random stream of an event depends only on (spec seed, global event
-    // id). Geant4 has already seeded this thread's engine from its own queue;
-    // overwrite that, so the requirement holds by construction and does not
-    // rest on how G4MTRunManager happens to hand out seeds. Nothing has drawn a
-    // random number yet: the gun is deterministic. If a gun ever draws random
-    // numbers, its GeneratePrimaries() must run after this seeding.
-    seed_event_engine(shared_->spec_seed, static_cast<std::uint64_t>(event->GetEventID()));
     thread_event_buffer().assign(2 * static_cast<std::size_t>(shared_->geometry.layers), 0.0);
     thread_event_hits().clear();
   }
@@ -276,22 +286,27 @@ class EventAction : public G4UserEventAction {
 
 class Actions : public G4VUserActionInitialization {
  public:
-  Actions(const GunConfig& gun, SharedResults* shared) : gun_(gun), shared_(shared) {}
+  Actions(const GunConfig& gun, SharedResults* shared, const AfterSeeding& after_seeding)
+      : gun_(gun), shared_(shared), after_seeding_(after_seeding)
+  {
+  }
 
   void Build() const override
   {
-    SetUserAction(new PrimaryGenerator(gun_));
+    SetUserAction(new PrimaryGenerator(gun_, shared_->spec_seed, after_seeding_));
     SetUserAction(new EventAction(shared_));
   }
 
  private:
   GunConfig gun_;
   SharedResults* shared_;
+  AfterSeeding after_seeding_;
 };
 
 }  // namespace
 
-DevRunResult run_dev_simulation(const json& spec, int threads, const EventConsumer& consumer)
+DevRunResult run_dev_simulation(const json& spec, int threads, const EventConsumer& consumer,
+                                const AfterSeeding& after_seeding)
 {
   if (threads < 1) {
     throw std::invalid_argument("threads must be at least 1");
@@ -380,7 +395,7 @@ DevRunResult run_dev_simulation(const json& spec, int threads, const EventConsum
 
   run_manager->SetUserInitialization(new DetectorConstruction(spec, geometry, record_hits));
   run_manager->SetUserInitialization(physics);
-  run_manager->SetUserInitialization(new Actions(gun, &shared));
+  run_manager->SetUserInitialization(new Actions(gun, &shared, after_seeding));
 
   // Geant4's master engine still seeds Geant4's own per-event seeds, which
   // EventAction replaces. Seed it from the spec anyway so nothing depends on
