@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(vikshep-sim VERSION 0.1.0 LANGUAGES CXX)
+project(vikshep-sim VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,6 +23,18 @@ endif()
 
 configure_file(src/build_config.hh.in ${CMAKE_CURRENT_BINARY_DIR}/generated/build_config.hh @ONLY)
 
+# nanoarrow (with its IPC component and the flatcc runtime), vendored in
+# third_party/nanoarrow at one pinned commit. Compiled as C; warnings of third-party
+# code are not ours to fix.
+add_library(nanoarrow_vendored STATIC
+  third_party/nanoarrow/src/nanoarrow.c
+  third_party/nanoarrow/src/nanoarrow_ipc.c
+  third_party/nanoarrow/src/flatcc.c
+)
+target_include_directories(nanoarrow_vendored PUBLIC third_party/nanoarrow/include)
+target_compile_options(nanoarrow_vendored PRIVATE -w)
+set_target_properties(nanoarrow_vendored PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 # Everything except main() lives in a library so the tests can link it.
 add_library(vikshep_core STATIC
   src/cmd_info.cc
@@ -44,6 +56,7 @@ target_include_directories(vikshep_core PUBLIC
   ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 target_link_libraries(vikshep_core PUBLIC
+  nanoarrow_vendored
   Geant4::G4physicslists
   CLI11::CLI11
   nlohmann_json::nlohmann_json
@@ -65,6 +78,7 @@ add_executable(vikshep-tests
   tests/test_reorder_buffer.cc
   tests/test_event_seed.cc
   tests/test_event_digest.cc
+  tests/test_vendored.cc
   tests/test_digests.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
