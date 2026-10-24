@@ -16,3 +16,4 @@ dependencies:
   - catch2>=3
   - jsonschema
   - pyarrow
+  - matplotlib

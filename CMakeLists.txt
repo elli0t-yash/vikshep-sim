@@ -95,11 +95,13 @@ add_executable(vikshep-tests
   tests/test_run_outputs.cc
   tests/test_digests.cc
   tests/test_outputs.cc
+  tests/test_plot.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
 target_compile_definitions(vikshep-tests PRIVATE
   VIKSHEP_PYTHON="${Python3_EXECUTABLE}"
   VIKSHEP_TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests"
+  VIKSHEP_SCRIPTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/scripts"
   VIKSHEP_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden"
   VIKSHEP_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/docs/examples"
   VIKSHEP_SIM_EXE="$<TARGET_FILE:vikshep-sim>"
