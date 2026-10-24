@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <string>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -34,9 +35,11 @@ int main(int argc, char** argv)
 
   const auto missing = find_missing_data_sets(required_data_sets("FTFP_BERT"));
   if (!missing.empty()) {
-    std::fprintf(stderr, "SKIPPED, not passed: Geant4 data sets are missing. %s\n",
-                 describe_missing(missing).c_str());
-    return 77;
+    const char* require = std::getenv("VIKSHEP_REQUIRE_DATA");
+    const bool must = require != nullptr && *require != '\0' && std::string(require) != "0";
+    std::fprintf(stderr, "%s: Geant4 data sets are missing. %s\n",
+                 must ? "FAILED (VIKSHEP_REQUIRE_DATA is set)" : "SKIPPED, not passed", describe_missing(missing).c_str());
+    return must ? 1 : 77;
   }
 
   std::ifstream in(std::string(VIKSHEP_EXAMPLES_DIR) + "/calorimeter.json");

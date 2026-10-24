@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 
 #include "cli_helpers.hh"
+#include "data_sets_guard.hh"
 #include "datasets_check.hh"
 
 using nlohmann::json;
@@ -16,13 +17,6 @@ using nlohmann::json;
 namespace {
 
 // Skips (visibly, never silently) when the Geant4 data sets are missing.
-#define SKIP_WITHOUT_DATA_SETS()                                                         \
-  do {                                                                                   \
-    const auto missing = find_missing_data_sets(required_data_sets("FTFP_BERT"));        \
-    if (!missing.empty()) {                                                              \
-      SKIP("SKIPPED, not passed: Geant4 data sets are missing. " << describe_missing(missing)); \
-    }                                                                                    \
-  } while (0)
 
 json example_spec()
 {

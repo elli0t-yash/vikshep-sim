@@ -11,6 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include "cli_helpers.hh"
+#include "data_sets_guard.hh"
 #include "datasets_check.hh"
 #include "errors.hh"
 #include "failure.hh"
@@ -20,13 +21,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-#define SKIP_WITHOUT_DATA_SETS()                                                         \
-  do {                                                                                   \
-    const auto missing = find_missing_data_sets(required_data_sets("FTFP_BERT"));        \
-    if (!missing.empty()) {                                                              \
-      SKIP("SKIPPED, not passed: Geant4 data sets are missing. " << describe_missing(missing)); \
-    }                                                                                    \
-  } while (0)
 
 std::string read_file(const fs::path& path)
 {

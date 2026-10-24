@@ -24,9 +24,10 @@ import time
 
 exe, spec = sys.argv[1], sys.argv[2]
 
-if not all(os.path.isdir(os.environ.get(v, "")) for v in ("G4LEDATA", "G4PARTICLEXSDATA", "G4ENSDFSTATEDATA", "G4LEVELGAMMADATA")):
-    sys.stderr.write("SKIPPED, not passed: Geant4 data sets are missing (environment not active)\n")
-    sys.exit(77)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import vikshep_testlib  # noqa: E402
+
+vikshep_testlib.require_data_sets()
 
 problems = []
 

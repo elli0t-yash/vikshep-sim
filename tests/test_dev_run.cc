@@ -11,6 +11,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include "data_sets_guard.hh"
 #include "datasets_check.hh"
 #include "dev_run.hh"
 #include "spec_canonical.hh"
@@ -28,11 +29,7 @@ TEST_CASE("a small calorimeter run is physically sane", "[geant4]")
   spec["sensitive"] = json::array({"absorber", "active"});
 
   const json resolved = resolve_spec(spec);
-  const auto missing = find_missing_data_sets(
-      required_data_sets(resolved.at("physics").at("list").get<std::string>()));
-  if (!missing.empty()) {
-    SKIP("SKIPPED, not passed: Geant4 data sets are missing. " << describe_missing(missing));
-  }
+  SKIP_WITHOUT_DATA_SETS();
 
   // Collect the hits the run delivers, to compare them with the energy table.
   std::vector<EventHits> delivered;

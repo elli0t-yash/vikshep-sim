@@ -13,9 +13,9 @@ exe = sys.argv[1]
 
 def run(threads, events, seed=42):
     proc = subprocess.run([exe, str(threads), str(events), str(seed)], capture_output=True, text=True)
-    if proc.returncode == 77:
-        sys.stderr.write(proc.stderr)
-        sys.exit(77)
+    if proc.returncode in (77, 1) and "data sets are missing" in proc.stderr:
+        sys.stderr.write(proc.stderr)  # the probe says skipped (77) or, with VIKSHEP_REQUIRE_DATA, failed (1)
+        sys.exit(proc.returncode)
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr[-2000:])
         sys.exit("probe failed with exit code %d" % proc.returncode)

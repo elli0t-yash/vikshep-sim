@@ -8,6 +8,7 @@
 
 #include "build_config.hh"
 #include "cli_helpers.hh"
+#include "data_sets_guard.hh"
 #include "datasets_check.hh"
 #include "run_outputs.hh"
 #include "sha3_256.hh"
@@ -106,10 +107,8 @@ TEST_CASE("unknown conda metadata is recorded as unknown and is not an error", "
 
 TEST_CASE("the data sets of this environment are found when the environment is active", "[provenance]")
 {
+  SKIP_WITHOUT_DATA_SETS();
   const auto required = required_data_sets("FTFP_BERT");
-  if (!find_missing_data_sets(required).empty()) {
-    SKIP("SKIPPED, not passed: Geant4 data sets are missing in this environment");
-  }
   for (const DataSetRecord& r : describe_data_sets(required)) {
     INFO(r.env_var << " " << r.directory);
     CHECK(r.directory != "unknown");
