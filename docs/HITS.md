@@ -136,7 +136,9 @@ the event, on how many events the run asked for, or on which events ran before
 it. `event_id` is the global event index of section 4.1, never a per-thread
 counter.
 
-At the start of every event, before anything draws a random number for it, the
+At the start of every event, before anything draws a random number for it (the
+reseeding is the first step of generating the primary particles, so even a
+particle source that draws random numbers comes after it), the
 simulator reseeds the random engine of the thread running the event with two
 numbers derived from (`seed`, `event_id`). All arithmetic is modulo 2^64.
 

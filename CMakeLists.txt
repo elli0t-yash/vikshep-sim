@@ -83,6 +83,18 @@ target_compile_definitions(vikshep-sim-tests PRIVATE
 )
 catch_discover_tests(vikshep-sim-tests)
 
+# A test-only gun that draws a random number: independent of the thread count.
+add_executable(random-gun-probe tests/random_gun_probe.cc)
+target_link_libraries(random-gun-probe PRIVATE vikshep_core)
+target_compile_definitions(random-gun-probe PRIVATE
+  VIKSHEP_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/docs/examples"
+)
+add_test(NAME random_draws_independent_of_threads
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_random_gun.py
+          $<TARGET_FILE:random-gun-probe>
+)
+set_tests_properties(random_draws_independent_of_threads PROPERTIES SKIP_RETURN_CODE 77)
+
 add_test(NAME schema_matches_validator
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_schema.py
           $<TARGET_FILE:vikshep-sim>
