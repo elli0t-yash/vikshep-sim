@@ -29,3 +29,9 @@ Apache Arrow nanoarrow, with its IPC component and the bundled flatcc runtime
   flatcc runtime: Copyright 2015-2023 Mikkel F. Jorgensen, dvide.com; Apache License,
   Version 2.0; see third_party/nanoarrow/LICENSE.flatcc.txt. Some headers in
   third_party/nanoarrow/include/flatcc/portable/ state their own licences.
+
+tiny_sha3
+  third_party/tiny_sha3
+  tiny_sha3 by Markku-Juhani O. Saarinen, commit dcbb3192047c2a721f5f851db591871d428036a9.
+  MIT License, Copyright (c) 2015 Markku-Juhani O. Saarinen; see
+  third_party/tiny_sha3/LICENSE.txt.

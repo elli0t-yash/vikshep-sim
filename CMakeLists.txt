@@ -35,6 +35,11 @@ target_include_directories(nanoarrow_vendored PUBLIC third_party/nanoarrow/inclu
 target_compile_options(nanoarrow_vendored PRIVATE -w)
 set_target_properties(nanoarrow_vendored PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# tiny_sha3 (MIT), vendored in third_party/tiny_sha3, for the OID.
+add_library(tiny_sha3 STATIC third_party/tiny_sha3/sha3.c)
+target_include_directories(tiny_sha3 PUBLIC third_party/tiny_sha3)
+target_compile_options(tiny_sha3 PRIVATE -w)
+
 # Everything except main() lives in a library so the tests can link it.
 add_library(vikshep_core STATIC
   src/cmd_info.cc
@@ -46,6 +51,7 @@ add_library(vikshep_core STATIC
   src/dev_run.cc
   src/event_digest.cc
   src/event_seed.cc
+  src/sha3_256.cc
   src/spec_file.cc
   src/spec_validate.cc
   src/spec_canonical.cc
@@ -57,6 +63,7 @@ target_include_directories(vikshep_core PUBLIC
 )
 target_link_libraries(vikshep_core PUBLIC
   nanoarrow_vendored
+  tiny_sha3
   Geant4::G4physicslists
   CLI11::CLI11
   nlohmann_json::nlohmann_json
@@ -79,6 +86,7 @@ add_executable(vikshep-tests
   tests/test_event_seed.cc
   tests/test_event_digest.cc
   tests/test_vendored.cc
+  tests/test_sha3.cc
   tests/test_digests.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
