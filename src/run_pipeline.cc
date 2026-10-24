@@ -140,7 +140,9 @@ PipelineResult run_to_folder(const json& user_spec, const std::string& out_dir,
   ProvenanceFacts provenance;
   provenance.run_manager = result.table.run_manager_type;
   provenance.default_cut_mm = result.table.default_cut_mm;
-  provenance.data_sets = describe_data_sets(required_data_sets(result.table.physics_list));
+  const auto required = required_data_sets(result.table.physics_list);
+  provenance.data_sets = describe_data_sets(required);
+  provenance.geant4_conda = describe_geant4_package(required);
   write_text_file(temp / "provenance.json", to_file_text(make_provenance(spec, provenance)));
 
   RunSummaryFacts summary;

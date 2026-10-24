@@ -150,3 +150,41 @@ std::vector<DataSetRecord> describe_data_sets(const std::vector<DataSet>& requir
             [](const DataSetRecord& a, const DataSetRecord& b) { return a.env_var < b.env_var; });
   return records;
 }
+
+CondaPackageRecord describe_geant4_package(const std::vector<DataSet>& required, const GetEnv& get_env)
+{
+  namespace fs = std::filesystem;
+  CondaPackageRecord record;
+  for (const DataSet& set : required) {
+    const char* value = get_env(set.env_var.c_str());
+    if (value == nullptr || *value == '\0') {
+      continue;
+    }
+    fs::path dir(value);
+    while (!dir.empty() && !dir.has_filename()) {
+      dir = dir.parent_path();
+    }
+    const fs::path data = dir.parent_path();
+    const fs::path geant4 = data.parent_path();
+    const fs::path share = geant4.parent_path();
+    if (!(data.filename() == "data" && geant4.filename() == "Geant4" && share.filename() == "share")) {
+      continue;
+    }
+    std::error_code ec;
+    std::vector<std::string> found;
+    for (fs::directory_iterator it(share.parent_path() / "conda-meta", ec), end; !ec && it != end;
+         it.increment(ec)) {
+      std::string version, build;
+      const std::string name = it->path().filename().string();
+      if (parse_conda_record_name(name, "geant4", version, build)) {
+        found.push_back(name);
+      }
+    }
+    if (!found.empty()) {
+      std::sort(found.begin(), found.end());
+      parse_conda_record_name(found.front(), "geant4", record.version, record.build);
+      return record;
+    }
+  }
+  return record;
+}

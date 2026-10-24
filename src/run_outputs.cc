@@ -37,6 +37,7 @@ json make_provenance(const json& resolved_spec, const ProvenanceFacts& facts)
   j["data_sets"] = data_sets;
   j["default_production_cut_mm"] = facts.default_cut_mm;
   j["geant4"] = geant4_json();
+  j["geant4_conda"] = {{"build", facts.geant4_conda.build}, {"version", facts.geant4_conda.version}};
   j["hits_schema_version"] = kHitsSchemaVersion;
   j["nanoarrow"] = {{"commit", kNanoarrowCommit}, {"version", NANOARROW_VERSION}};
   j["physics_list"] = resolved_spec.at("physics").at("list");
