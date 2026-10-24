@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-10-23 (UTC, from date -u).
+Last updated: 2026-10-24 (UTC, from date -u).
 
 ## Milestone Y1: skeleton, CLI and CI
 
@@ -329,6 +329,51 @@ directory name must be enough; provenance should say which source it used.
   for could not be used: scripts/check-rules.sh rejects the product name in files (rule: no AI
   attribution in files).
 
+## nanoarrow spike (2026-10-24, Y6 step 1): result is a STOP, decision needed
+
+Question: can nanoarrow's IPC component write hits.arrow as docs/HITS.md describes it? Spike program
+and checks: tools/nanoarrow_spike (outside the build). Two versions of the same library were tried;
+both were bundled with nanoarrow's own `ci/scripts/bundle.py --with-ipc --with-flatcc` and checked
+with pyarrow 25.0.0 (macOS arm64).
+
+| Criterion | nanoarrow 0.9.0 (release, 2026-07-31) | nanoarrow main@41c78c47 ("0.10.0-SNAPSHOT", 2026-10-24) |
+|-----------|----------------------------------------|---------------------------------------------------------|
+| writes the HITS.md schema with a dictionary-encoded `volume` | **FAILS**: `ArrowIpcWriterWriteArrayView` returns 45 "Cannot encode dictionary arrays"; the release has no function that writes a dictionary batch | passes (`ArrowIpcWriterWriteDictionaryBatch`, added 2026-09-08, file support fixed 2026-10-21) |
+| pyarrow opens it: schema, dictionary, values | not reachable (a schema without the dictionary column does write and read) | passes: 16 columns in order, uint64/int32/float64 types, `dictionary<int32, utf8>` with ["absorber", "active"], non-nullable, field metadata `unit` (mm, ns, MeV, MeV/c), schema metadata `vikshep.hits.schema_version = "1.0"`, 200000 rows in batches 65536, 65536, 65536, 3392 |
+| two writes byte-identical | n/a | passes: three writes (two seconds apart) are the same 20006370 bytes |
+| no timestamps or other non-deterministic metadata | n/a | passes: the only printable strings in the file are the column names, `unit`, the unit values, the schema metadata key and value, and the dictionary values |
+| zero-batch file opens in pyarrow | n/a | passes: 0 batches, 16 columns, 0 rows; the file holds the schema and the dictionary message |
+| dictionary written exactly once | n/a | passes: messages are schema, dictionary, 4 record batches; pyarrow stats: 1 dictionary batch, 0 deltas, 0 replaced |
+| buffer alignment (D5) | n/a | 8 bytes (a 101-row batch body is exactly 10128 bytes = 7 int32 columns padded to 408 bytes plus 9 8-byte columns), no compression, zero-length validity buffers, no nulls |
+
+Further findings on `main`:
+
+- It writes **no end-of-stream marker** before the footer unless asked. The format description puts
+  `0xFFFFFFFF 00000000` there. pyarrow reads the file anyway (it uses the footer), but a stricter
+  reader might not. Calling `ArrowIpcWriterWriteArrayView(writer, NULL)` before
+  `ArrowIpcWriterFinalizeFile` writes it; with it, every check above still passes and the streaming
+  message reader stops cleanly at the marker.
+- The `main` code was released nowhere; it is 39 commits after 0.9.0. The dictionary writer is about
+  seven weeks old, and the file-writing fix for dictionaries three days old. Its API may still change.
+
+Options (none chosen; Y6 is paused at step 1):
+
+1. Pin nanoarrow `main` at commit 41c78c476817d1d122acc59ddacb7a3cbd00644c (tarball sha256
+   418bd978ad204d57972ec8b32369a9a12071b0d2b7adb2f15ec83db819e2a5dc), same library, unreleased. All
+   criteria pass. Risk: an unreleased snapshot with a young code path; the version recorded in
+   provenance would be "0.10.0-SNAPSHOT" plus the commit.
+2. Wait for the nanoarrow release that contains the dictionary writer, and pin that.
+3. Stay on 0.9.0 and write the missing dictionary-batch message ourselves with its encoder pieces.
+   Not tried; it means maintaining encoder code that upstream already has on `main`.
+4. A different writer (for example a small purpose-built one, or Arrow C++). Not evaluated; needs the
+   owner's approval first.
+5. Change HITS.md so that `volume` is a plain utf8 column (decision D6's alternative). 0.9.0 would then
+   work, at the cost of repeating the name in every row (not measured) and a format change before it
+   is frozen.
+
+What was done on the branch before the stop: step 0 (reseeding in GeneratePrimaries, the random-gun
+test, the seedprobe README), committed. Nothing vendored, nothing of the writer started.
+
 ## Versions (2026-10-22)
 
 Geant4 11.4.3 (newest 11.x available for both linux-64 and osx-arm64 on
@@ -443,15 +488,12 @@ nanoarrow on conda-forge at this date is 0.9.0 (GitHub release dated
 
 Relevant details from the same header:
 
-- Dictionaries: `ArrowIpcWriterWriteDictionaryBatch()` writes one dictionary
-  batch. In file mode it returns ENOTSUP for a delta or for a dictionary id
-  that was already written ("IPC files do not support dictionary replacement").
-  This agrees with the single, non-delta dictionary in HITS.md section 1.2.
-- `ArrowIpcWriterWriteArrayViewWithDictionaries()` writes the dictionaries
-  before every batch, so in file mode only one batch can be written that way.
-  Writing many batches presumably means writing the dictionary once with
-  `WriteDictionaryBatch()` and the index batches with `WriteArrayView()`.
-  UNCLEAR: not tried; it is an inference from the header comments.
+- CORRECTION (2026-10-24): the three bullets above about `ArrowIpcWriterWriteDictionaryBatch()` and
+  `ArrowIpcWriterWriteArrayViewWithDictionaries()` were read from the header on nanoarrow's `main`
+  branch, not from the 0.9.0 release. Those two functions do **not** exist in 0.9.0. See "nanoarrow
+  spike" below. (StartFile and FinalizeFile are in 0.9.0; that part was right.)
+- Dictionaries (as found on `main`, not in 0.9.0): `ArrowIpcWriterWriteDictionaryBatch()` writes one
+  dictionary batch; in file mode it returns ENOTSUP for a delta or a dictionary id written before.
 - Compression: the extension lists ZSTD and LZ4 codecs; HITS.md requires none.
 
 UNCLEAR, not tested: whether the bytes it produces meet every rule in HITS.md
