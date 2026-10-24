@@ -23,6 +23,7 @@ micromamba activate vikshep-sim
 
 # 2. build
 cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" \
   -DCMAKE_FIND_FRAMEWORK=LAST
 cmake --build build
@@ -31,7 +32,8 @@ cmake --build build
 ./build/vikshep-sim info --json
 ```
 
-The two configure flags make CMake prefer the environment's libraries over
+`Release` is the default build type if none is given; it is recorded in `provenance.json`
+(`build_type`) and the build refuses `-ffast-math`. The prefix flags make CMake prefer the environment's libraries over
 anything in the macOS SDK or the system.
 
 ## Geant4 data sets

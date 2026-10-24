@@ -6,6 +6,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include "build_config.hh"
 #include "cli_helpers.hh"
 #include "datasets_check.hh"
 #include "run_outputs.hh"
@@ -141,10 +142,11 @@ TEST_CASE("provenance.json has the guaranteed keys and the new ones", "[provenan
   std::set<std::string> keys;
   for (auto it = p.begin(); it != p.end(); ++it) keys.insert(it.key());
   const std::set<std::string> expected = {
-      "contract_version", "data_sets", "default_production_cut_mm", "geant4", "hits_schema_version",
+      "build_type", "contract_version", "data_sets", "default_production_cut_mm", "geant4", "hits_schema_version",
       "nanoarrow", "physics_list", "platform", "run_manager", "seed", "seeding_scheme", "spec",
       "spec_oid", "spec_version", "tool_version", "writer_scheme"};
   CHECK(keys == expected);
+  CHECK(p.at("build_type") == VIKSHEP_BUILD_TYPE);
   CHECK(p.at("seeding_scheme") == 1);
   CHECK(p.at("writer_scheme") == 1);
   CHECK(p.at("seed") == 42);

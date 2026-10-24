@@ -1,11 +1,25 @@
 cmake_minimum_required(VERSION 3.20)
 project(vikshep-sim VERSION 0.1.0 LANGUAGES C CXX)
 
+# Release is the default build type: the build type is part of "same build" in the
+# determinism promise (docs/HITS.md, section 9), and the output is recorded in
+# provenance.json (build_type). Optimisation never includes -ffast-math or -Ofast, which
+# would let the compiler change floating-point results.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type (default: Release)" FORCE)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Geant4 REQUIRED)
+
+foreach(_flags "${CMAKE_C_FLAGS}" "${CMAKE_CXX_FLAGS}" "${CMAKE_C_FLAGS_RELEASE}" "${CMAKE_CXX_FLAGS_RELEASE}")
+  if(_flags MATCHES "fast-math|Ofast")
+    message(FATAL_ERROR "-ffast-math / -Ofast are not allowed: they change floating-point results")
+  endif()
+endforeach()
 find_package(CLI11 REQUIRED)
 find_package(nlohmann_json REQUIRED)
 
@@ -19,6 +33,12 @@ if(Geant4_multithreaded_FOUND)
   set(VIKSHEP_GEANT4_MULTITHREADED 1)
 else()
   set(VIKSHEP_GEANT4_MULTITHREADED 0)
+endif()
+
+if(CMAKE_BUILD_TYPE)
+  set(VIKSHEP_BUILD_TYPE "${CMAKE_BUILD_TYPE}")
+else()
+  set(VIKSHEP_BUILD_TYPE "multi-config")
 endif()
 
 configure_file(src/build_config.hh.in ${CMAKE_CURRENT_BINARY_DIR}/generated/build_config.hh @ONLY)

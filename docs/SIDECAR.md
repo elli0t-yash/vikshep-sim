@@ -212,6 +212,7 @@ Two-space indentation, one final newline. Guaranteed keys:
 
 | Key | Content |
 |-----|---------|
+| build_type | the CMake build type of the program (`Release` unless the builder chose another); it is part of "same build" for reproducibility. It changes the bytes of `provenance.json`, not those of `hits.arrow` (the same hits give the same OID in Release and in an unoptimised build; one comparison on one machine, see STATUS.md) |
 | contract_version | integer |
 | data_sets | array, sorted by `env_var`, one entry per Geant4 data set the run needs: `env_var` (for example `G4LEDATA`), `directory` (base name of the data directory, which carries the data set version, for example `EMLOW8.8`), and `conda_package`, `conda_version`, `conda_build` (from the conda metadata when it can be found, otherwise the string `"unknown"`; never an error) |
 | default_production_cut_mm | the default production cut in effect |
