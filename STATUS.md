@@ -572,7 +572,7 @@ for the interpreter in $CONDA_PREFIX/bin and the CMAKE_PREFIX_PATH entries first
 - [x] The no-overwrite rename: the test now asserts that the OS call is the one used, and prints which
 - [x] Standard headers included where used (libstdc++ does not include them transitively)
 - [x] CI workflow rewritten (written, actionlint clean, **not yet run on GitHub: see below**)
-- [ ] CI green on ubuntu-latest and macos-latest with this code: needs the branches on origin
+- [x] CI green on ubuntu-latest and macos-latest with this code (run 40083229186, attempts 1 and 2; see "CI results")
 - ctest: 154 of 154 passed on macOS arm64 (2026-10-24), Release
 
 ### Fatal Geant4 exceptions (src/geant4_errors.cc)
@@ -648,6 +648,67 @@ for this, but it was never compiled with GCC here); the Python picked is the env
   libG4physicslists / libG4processes_hadronic directly to std::cout, bypassing G4cout.
 - The 1008 s outlier (above): unexplained, did not recur in 20 runs.
 - Linux: untested until CI runs the new code.
+
+## CI results (2026-10-24, branch y8/ci pushed by the owner; run 40083229186)
+
+Both jobs were green on the first run, with no change to the code or the tests. Nothing was skipped or weakened.
+
+| | ubuntu-latest (job id, attempt 1 / 2) | macos-latest (arm64) |
+|--|--|--|
+| result | success / success | success / success |
+| job ids | 120840867223 / 120842691952 | 120840867392 / 120842691741 |
+| whole job | 489 s / 413 s | 244 s / 193 s |
+| environment, first run (cache miss, saved) | 174 s | 72 s |
+| environment, cached (attempt 2, "Cache hit", restored) | 40 s | 25 s |
+| Configure + Build (Release, no compiler cache) | 137 s / 160 s | 23 s / 25 s |
+| Tests (ctest) | 110 s / 131 s | 102 s / 99 s |
+| tests ran / passed / failed / **skipped** | 154 / 154 / 0 / **0** (both attempts) | 154 / 154 / 0 / **0** (both attempts) |
+| compiler (from provenance.json) | gcc 15.3.0, x86_64 | clang 21.1.8, arm64 |
+| geant4 conda build | noqt_f3881a7_0 | noqt_429d0ab_0 |
+| Python for the tests | the environment's python3 | the environment's python3 |
+
+The counts come from scripts/ci_summary.py (ctest --output-junit), which also fails on any skipped test, and
+every Geant4 test ran with VIKSHEP_REQUIRE_DATA=1, so a missing data set would have failed, not skipped.
+The cache is keyed on the hash of environment.yml; caches are scoped to the branch (and are visible to PRs),
+so a new branch pays the first-run cost once. No compiler warnings were counted in the build logs (the build
+does not use -Wall).
+
+Linux evidence from the log of the job (attempt 1):
+- renameat2: "rename_no_replace mechanism: renameat2(RENAME_NOREPLACE)", and the test asserts the atomic call
+  was taken (macOS: renamex_np(RENAME_EXCL)).
+- Signals and cancellation: run_cancellation_by_signal passes: SIGTERM at start (1078 ms, during Geant4
+  initialisation), SIGTERM mid-run (83 ms), SIGINT mid-run (84 ms), double signal (exit 4, 1 ms after the
+  second signal, no output, a .run.partial-<pid> folder remains as S4 allows). Exit code 4 and a single
+  CANCELLED line in each.
+- stdout pure JSON: run_stdout_stream_1_threads and _4_threads pass on Linux, as do the channel tests, so the
+  std::cout workaround works on glibc; cadence checked (no two progress lines closer than 250 ms).
+- Determinism: "1 thread and 4 threads give identical digests", "a: same spec and seed twice", "b: 1 thread and
+  4 threads give identical outputs", "f: ... through run" and random_draws_independent_of_threads pass.
+- The code compiles with GCC 15.3 and libstdc++ (the explicit includes were not needed to compile, only
+  hygiene).
+- spec_oid of docs/examples/calorimeter.json is the same on both platforms (8abf0a9d...: it hashes the
+  canonical spec, which has no platform dependence). The OIDs of the run are in the job summaries; they are
+  expected to differ across platforms and are never compared. The workflow now also logs the OID and keeps
+  run_summary.json as an artifact.
+
+What CI showed that was not known before:
+- The conda build of geant4 chosen by `geant4=11.4.3=*noqt*` is not stable even on one platform: Linux got
+  noqt_1a35367_0 in the Y4 run and noqt_f3881a7_0 now; macOS got noqt_d9c327f_0 in Y4 and noqt_429d0ab_0 now.
+  Results of one build may differ from another in principle (different hdf5 or compiler); provenance.json now
+  records the build string (`geant4_conda`, below) so that a difference is visible.
+- GitHub announces that the ubuntu-latest label moves to Ubuntu 26 (annotation in the runs); the conda
+  environment is independent of the system libraries, but a first run on the new image is worth watching.
+- The cached environment saves about 2 minutes on Linux and 45 s on macOS; building is now the longest step on
+  Linux (137 to 160 s): a compiler cache could be added.
+
+### Changes after the runs (local, not yet pushed, so not yet seen by CI)
+
+- provenance.json has `geant4_conda` = {build, version} of the conda package geant4, found like the data set
+  versions (prefix from the data directories, file name in conda-meta; "unknown" if not found). SIDECAR.md key
+  table updated; tests added (look-alike packages geant4-data-*, geant4-qt-mutex do not match). 156 of 156
+  ctest cases pass locally.
+- Concurrency group per branch (head_ref or ref_name), so a push run and a pull_request run of one branch
+  cancel each other.
 
 ## Versions (2026-10-22)
 
