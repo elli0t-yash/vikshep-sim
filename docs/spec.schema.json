@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vikshep.invalid/schemas/simspec-1.0.json",
+  "title": "vikshep-sim simulation spec, spec_version 1.0",
+  "description": "Structural rules of docs/SPEC.md. Names that depend on the installed Geant4 (materials, physics lists) are checked by vikshep-sim validate, not here. The validator in vikshep-sim is authoritative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["spec_version", "template", "geometry", "gun", "events", "seed"],
+  "properties": {
+    "spec_version": {"const": "1.0"},
+    "template": {"const": "layered_calorimeter"},
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layers", "absorber", "active", "transverse_mm"],
+      "properties": {
+        "layers": {"type": "integer", "minimum": 1, "maximum": 200},
+        "absorber": {"$ref": "#/$defs/slab"},
+        "active": {"$ref": "#/$defs/slab"},
+        "transverse_mm": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "gun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["particle", "energy_GeV"],
+      "properties": {
+        "particle": {
+          "enum": ["e-", "e+", "gamma", "mu-", "mu+", "pi-", "pi+", "proton", "neutron", "kaon+", "kaon-"]
+        },
+        "energy_GeV": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000},
+        "position_mm": {"$ref": "#/$defs/vector3", "default": [0, 0, -20]},
+        "direction": {
+          "$ref": "#/$defs/vector3",
+          "not": {"const": [0, 0, 0]},
+          "default": [0, 0, 1]
+        }
+      }
+    },
+    "physics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "list": {"type": "string", "minLength": 1, "default": "FTFP_BERT"}
+      }
+    },
+    "sensitive": {
+      "type": "array",
+      "items": {"enum": ["absorber", "active"]},
+      "minItems": 1,
+      "uniqueItems": true,
+      "default": ["active"]
+    },
+    "events": {"type": "integer", "minimum": 1, "maximum": 10000000},
+    "seed": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}
+  },
+  "$defs": {
+    "vector3": {
+      "type": "array",
+      "items": {"type": "number"},
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "slab": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["material", "thickness_mm"],
+      "properties": {
+        "material": {"type": "string", "minLength": 1},
+        "thickness_mm": {"type": "number", "exclusiveMinimum": 0}
+      }
+    }
+  }
+}

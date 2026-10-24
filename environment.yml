@@ -13,3 +13,5 @@ dependencies:
   - expat
   - zlib
   - freetype
+  - catch2>=3
+  - jsonschema

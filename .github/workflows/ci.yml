@@ -38,6 +38,9 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      - name: Tests
+        run: ctest --test-dir build --output-on-failure
+
       - name: Info as valid JSON
         run: ./build/vikshep-sim info --json | python -m json.tool
 

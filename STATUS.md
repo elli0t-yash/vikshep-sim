@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-10-24 (UTC, from date -u).
+Last updated: 2026-10-23 (UTC, from date -u).
 
 ## Milestone Y1: skeleton, CLI and CI
 
@@ -14,6 +14,65 @@ Last updated: 2026-10-24 (UTC, from date -u).
 - [x] README.md, STATUS.md, NOTICE
 - [x] Local verification on macOS arm64 (see below)
 - [ ] CI green on ubuntu-latest and macos-14 (needs a push, which is the owner's call)
+
+## Milestone Y3 (first part): spec v1, validator, validate subcommand
+
+- [x] docs/SPEC.md and docs/examples/calorimeter.json
+- [x] docs/spec.schema.json (JSON Schema 2020-12), checked against the validator by
+      tests/check_schema.py (74 cases, run by ctest)
+- [x] Validator (src/spec_validate.cc): reports all errors as {pointer, message}
+- [x] Canonical form (src/spec_canonical.cc): defaults resolved, direction normalised,
+      sorted keys, ECMAScript number format (RFC 8785)
+- [x] vikshep-sim validate --spec <file> [--canonical]
+- [x] Catch2 tests wired into ctest (37 tests); CI runs ctest
+- [x] info --json: templates, spec_versions, contract_version, hits_schema_versions
+- [ ] Geant4 run, hits.arrow writer, provenance.json, run_summary.json (next prompts)
+
+Verified on 2026-10-23, macOS arm64: build from a throwaway env created from
+environment.yml alone (catch2 3.16.1, jsonschema 4.26.0 added), ctest 37 of 37
+passed, info --json valid and byte-stable between two runs. Not verified: Linux,
+and the CI run (nothing is pushed).
+
+### Geant4-dependent checks
+
+All three needed no full initialisation, so nothing is deferred:
+
+- Materials: G4NistManager::GetNistMaterialNames() lists the 309 NIST names
+  without building any material.
+- Physics lists: names from G4PhysListFactory (AvailablePhysLists and
+  AvailablePhysListsEM). A test compares the validator's answer with
+  G4PhysListFactory::IsReferencePhysList for every list and every list plus EM
+  suffix (and a few bad names); they agree.
+- Particles: fixed allowlist in the validator, no Geant4.
+
+### Left for the run (next prompt)
+
+- Whether gun.position_mm lies inside the simulated world (needs the world
+  size, which the template does not define yet).
+- DATASETS_MISSING check for the data sets the physics list needs.
+- Duplicate keys in a spec file are not detected (the last one wins); a
+  stricter parser would be needed.
+- Geant4 output (G4cout) redirected to stderr, required by SIDECAR.md.
+
+### Changes to the contract documents made in this milestone
+
+- SIDECAR.md: spec_version and spec_versions are strings ("1.0"), not integers;
+  added the `validate` command; added error codes SPEC_UNREADABLE and
+  SPEC_NOT_JSON (exit 2); info now emits contract_version, spec_versions,
+  hits_schema_versions; `templates` entries are plain names.
+- Command-line usage errors now exit 2 (before: CLI11's own codes), as
+  SIDECAR.md section 3 says. --help still exits 0.
+
+### Decisions to confirm (this milestone)
+
+See the table at the end of docs/SPEC.md (P1 to P7). Most important:
+
+- P1: the stack is centred on the origin (as HITS.md says), so the default gun
+  start [0, 0, -20] lies inside any stack longer than 40 mm, including the
+  example (150 mm). Alternative: front face of the stack at z = 0, which needs
+  HITS.md section 5.1 amended.
+- P2: required fields are geometry, gun.particle, gun.energy_GeV, events, seed
+  (spec_version and template as specified). seed has no default.
 
 ## Versions (2026-10-22)
 
@@ -99,7 +158,9 @@ was removed.
 - ci.yml parses as YAML and passes actionlint 1.7.12 (checked in a throwaway
   env). It has not run on GitHub.
 - Is physics_lists meant to be the full factory list (36 names), or a curated
-  subset?
+  subset? (Kept as the full list; the validator accepts any of them.)
+- Linux: tests (Catch2, jsonschema, ctest) not run on Linux yet; the first CI
+  run is the first check.
 - Arrow IPC file writing with nanoarrow (checked 2026-10-24, answer below).
 - Repo placement: this is its own repository, while the desktop app plan
   assumes the simulator lives in a `sim/` folder of the main Vikshep

@@ -35,38 +35,54 @@ Fields emitted today:
 | geant4.multithreaded | boolean | multithreaded Geant4 |
 | physics_lists | array of string | reference physics list names from Geant4 |
 | em_options | array of string | EM option suffixes that can be appended to a physics list name; omitting the suffix selects the list's default |
-| templates | array | built-in geometry templates; empty until a later milestone |
+| templates | array of string | names of the built-in geometry templates (`layered_calorimeter`); see SPEC.md |
 | datasets | array | installed data sets; empty until milestone Y6 |
 | platform.os | string | "linux", "macos", "windows" or "unknown" |
 | platform.arch | string | "x86_64", "arm64" or "unknown" |
 | platform.compiler | string | for example "clang 21.1.8" |
 
-Example (lists shortened):
-
-```json
-{
-  "datasets": [],
-  "em_options": ["_EMV", "_EMX"],
-  "geant4": {"gdml": true, "multithreaded": true, "version": "11.4.3", "version_number": 1143},
-  "physics_lists": ["FTFP_BERT", "FTFP_BERT_TRV"],
-  "platform": {"arch": "arm64", "compiler": "clang 21.1.8", "os": "macos"},
-  "templates": [],
-  "tool_version": "0.1.0"
-}
-```
-
-Additions required by this contract (not emitted yet, Decision S3):
+Also emitted since the spec milestone (they were "additions" in the first draft
+of this document):
 
 | Key | Type | Meaning |
 |-----|------|---------|
 | contract_version | integer | version of this document, currently 1 |
-| spec_versions | array of integer | `spec_version` values the binary accepts |
+| spec_versions | array of string | `spec_version` values the binary accepts, for example ["1.0"] |
 | hits_schema_versions | array of string | `vikshep.hits.schema_version` values it can write, for example ["1.0"] |
 
-The shape of entries in `templates` and `datasets` is defined when those
-features arrive. Until then the app MUST treat the arrays as opaque lists.
+Example (lists shortened):
 
-### 1.2 `vikshep-sim run --spec <file> --out <dir> [--progress jsonl]`
+```json
+{
+  "contract_version": 1,
+  "datasets": [],
+  "em_options": ["_EMV", "_EMX"],
+  "geant4": {"gdml": true, "multithreaded": true, "version": "11.4.3", "version_number": 1143},
+  "hits_schema_versions": ["1.0"],
+  "physics_lists": ["FTFP_BERT", "FTFP_BERT_TRV"],
+  "platform": {"arch": "arm64", "compiler": "clang 21.1.8", "os": "macos"},
+  "spec_versions": ["1.0"],
+  "templates": ["layered_calorimeter"],
+  "tool_version": "0.1.0"
+}
+```
+
+The entries of `templates` are plain names for now; richer entries may be added
+later as a compatible change. The shape of entries in `datasets` is defined at
+milestone Y6; until then the app MUST treat that array as an opaque list.
+
+### 1.2 `vikshep-sim validate --spec <file> [--canonical]`
+
+Checks a spec without running a simulation (rules: SPEC.md).
+
+- Valid: exit 0, stdout is one line `{"event":"valid","spec_version":"1.0"}`; with
+  `--canonical`, stdout is instead the canonical form of the spec (SPEC.md,
+  section 4) followed by a newline.
+- Invalid: exit 2, stdout is exactly one `error` line as in section 2.1 with the
+  `errors` array, nothing else.
+- Human-readable text goes to stderr.
+
+### 1.3 `vikshep-sim run --spec <file> --out <dir> [--progress jsonl]`
 
 | Option | Meaning |
 |--------|---------|
@@ -135,7 +151,7 @@ not stable. The optional `errors` array (Decision S6) is present for
 |-----:|---------|-------------|
 | 0 | success; a `done` line was emitted | none |
 | 1 | simulation or internal error | GEOMETRY_ERROR, OUTPUT_NOT_WRITABLE, SIMULATION_FAILED, INTERNAL |
-| 2 | bad usage or invalid spec | USAGE, SPEC_INVALID, SPEC_VERSION_UNSUPPORTED, OUTPUT_EXISTS |
+| 2 | bad usage or invalid spec | USAGE, SPEC_INVALID, SPEC_UNREADABLE, SPEC_NOT_JSON, SPEC_VERSION_UNSUPPORTED, OUTPUT_EXISTS |
 | 3 | required Geant4 data sets missing | DATASETS_MISSING |
 | 4 | cancelled | CANCELLED |
 
@@ -151,7 +167,9 @@ MUST handle an unknown code by falling back to the exit code.
 | Code | When |
 |------|------|
 | USAGE | unknown option, missing required option, bad option value |
-| SPEC_INVALID | the spec file is unreadable, not JSON, or fails validation (section 6) |
+| SPEC_INVALID | the spec fails validation (section 6) |
+| SPEC_UNREADABLE | the spec file cannot be opened or read |
+| SPEC_NOT_JSON | the spec file is not valid JSON |
 | SPEC_VERSION_UNSUPPORTED | `spec_version` is not in `spec_versions` |
 | OUTPUT_EXISTS | `--out` already exists, or its parent does not |
 | DATASETS_MISSING | Geant4 data sets needed by the spec's physics list are not available |
@@ -197,7 +215,7 @@ Keys sorted. Guaranteed keys:
 | oid | string | the 28-character OID of hits.arrow |
 | contract_version | integer | this contract's version |
 | hits_schema_version | string | for example "1.0" |
-| spec_version | integer | the spec's version |
+| spec_version | string | the spec's version, for example "1.0" |
 | events_requested | integer | events asked for |
 | events_completed | integer | events finished (equals events_requested on success) |
 | events_with_hits | integer | events with at least one hit |
@@ -295,7 +313,7 @@ The app MUST NOT:
 |----|----------|------------------|-------------|
 | S1 | Progress cadence | At most every 250 ms; first line at done = 0; final line always | Fixed event-count steps |
 | S2 | Exit code 2 | Bad usage or invalid spec; the Y1 "not implemented" stub is replaced when `run` exists | Keep 2 for not implemented and move usage to another code |
-| S3 | Extra keys in `info --json` | Add `contract_version`, `spec_versions`, `hits_schema_versions` in a small code change before `run` ships | Only `contract_version` |
+| S3 | Extra keys in `info --json` | Add `contract_version`, `spec_versions`, `hits_schema_versions` (accepted; emitted since the spec milestone) | Only `contract_version` |
 | S4 | Second signal | Exit 4 immediately, temp folder may remain | Ignore further signals |
 | S5 | provenance.json | Deterministic, guaranteed keys as in 5.1 | Fold into run_summary.json |
 | S6 | Error line extension | Extra `errors` array of {pointer, message} on SPEC_INVALID | One error line per problem |

@@ -23,18 +23,50 @@ endif()
 
 configure_file(src/build_config.hh.in ${CMAKE_CURRENT_BINARY_DIR}/generated/build_config.hh @ONLY)
 
-add_executable(vikshep-sim
-  src/main.cc
+# Everything except main() lives in a library so the tests can link it.
+add_library(vikshep_core STATIC
   src/cmd_info.cc
   src/cmd_run.cc
   src/cmd_datasets.cc
+  src/cmd_validate.cc
+  src/spec_validate.cc
+  src/spec_canonical.cc
+  src/spec_catalogue.cc
 )
-target_include_directories(vikshep-sim PRIVATE
+target_include_directories(vikshep_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
-target_link_libraries(vikshep-sim PRIVATE
+target_link_libraries(vikshep_core PUBLIC
   Geant4::G4physicslists
   CLI11::CLI11
   nlohmann_json::nlohmann_json
+)
+
+add_executable(vikshep-sim src/main.cc)
+target_link_libraries(vikshep-sim PRIVATE vikshep_core)
+
+# Tests: ctest --test-dir build --output-on-failure
+enable_testing()
+find_package(Catch2 3 REQUIRED)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+include(Catch)
+
+add_executable(vikshep-tests
+  tests/test_spec.cc
+  tests/test_cli.cc
+)
+target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
+target_compile_definitions(vikshep-tests PRIVATE
+  VIKSHEP_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/docs/examples"
+  VIKSHEP_SIM_EXE="$<TARGET_FILE:vikshep-sim>"
+)
+add_dependencies(vikshep-tests vikshep-sim)
+catch_discover_tests(vikshep-tests)
+
+add_test(NAME schema_matches_validator
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_schema.py
+          $<TARGET_FILE:vikshep-sim>
+          ${CMAKE_CURRENT_SOURCE_DIR}/docs/spec.schema.json
+          ${CMAKE_CURRENT_SOURCE_DIR}/docs/examples
 )
