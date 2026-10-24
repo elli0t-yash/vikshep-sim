@@ -8,6 +8,7 @@
 #include <system_error>
 #include <vector>
 
+#include "atomic_rename.hh"
 #include "datasets_check.hh"
 #include "run_outputs.hh"
 #include "spec_canonical.hh"
@@ -126,14 +127,13 @@ PipelineResult run_to_folder(const json& user_spec, const std::string& out_dir,
   summary.wall_time_s = result.wall_time_s;
   write_text_file(temp / "run_summary.json", to_file_text(make_run_summary(summary)));
 
-  // --- into place. The target did not exist when we started; check again right before
-  // the rename (a rename onto an existing empty folder would replace it). A very small
-  // window remains between this check and the rename; the contract is that --out is
-  // not shared with another writer.
-  if (fs::symlink_status(target, ec).type() != fs::file_type::not_found) {
+  // --- into place. The rename fails if the target exists (an atomic no-overwrite call
+  // where the operating system has one, see atomic_rename.hh), so another writer's folder
+  // is never replaced.
+  rename_no_replace(temp, target, ec);
+  if (ec == std::errc::file_exists) {
     throw OutputError("OUTPUT_EXISTS", "the output folder appeared while the run was in progress");
   }
-  fs::rename(temp, target, ec);
   if (ec) {
     throw OutputError("OUTPUT_NOT_WRITABLE", "cannot move the output folder into place: " + ec.message());
   }

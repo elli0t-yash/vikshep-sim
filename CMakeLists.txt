@@ -71,12 +71,15 @@ add_library(vikshep_core STATIC
   src/dev_run.cc
   src/event_digest.cc
   src/event_seed.cc
+  src/atomic_rename.cc
   src/build_info.cc
+  src/cancellation.cc
   src/hits_writer.cc
   src/run_outputs.cc
   src/run_pipeline.cc
   src/sha3_256.cc
   src/spec_file.cc
+  src/stdout_channel.cc
   src/spec_validate.cc
   src/spec_canonical.cc
   src/spec_catalogue.cc
@@ -116,9 +119,12 @@ add_executable(vikshep-tests
   tests/test_digests.cc
   tests/test_outputs.cc
   tests/test_plot.cc
+  tests/test_atomic_rename.cc
+  tests/test_channel.cc
 )
 target_link_libraries(vikshep-tests PRIVATE vikshep_core Catch2::Catch2WithMain)
 target_compile_definitions(vikshep-tests PRIVATE
+  VIKSHEP_CHANNEL_PROBE="$<TARGET_FILE:channel-probe>"
   VIKSHEP_PYTHON="${Python3_EXECUTABLE}"
   VIKSHEP_TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests"
   VIKSHEP_SCRIPTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/scripts"
@@ -136,6 +142,10 @@ target_compile_definitions(vikshep-sim-tests PRIVATE
   VIKSHEP_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/docs/examples"
 )
 catch_discover_tests(vikshep-sim-tests)
+
+# Test-only program for the stdout channel and the signal handlers.
+add_executable(channel-probe tests/channel_probe.cc)
+target_link_libraries(channel-probe PRIVATE vikshep_core)
 
 # A test-only gun that draws a random number: independent of the thread count.
 add_executable(random-gun-probe tests/random_gun_probe.cc)
