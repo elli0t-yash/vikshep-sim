@@ -6,8 +6,8 @@ transport; this repository only drives it and writes files.
 
 Geant4 is developed by the Geant4 Collaboration and is not part of Vikshep.
 
-Status: spec v1 and its validator exist; the simulation itself is not implemented yet.
-See STATUS.md.
+Status: spec 1.0 and 1.1 (the layered calorimeter, and since 1.1 a tracker barrel with an
+optional uniform magnetic field), the validator, `run` and `dev-run` exist. See STATUS.md.
 
 Determinism target: identical output on the same build, platform and seed.
 Results are not promised to be identical across platforms.
@@ -17,9 +17,12 @@ Results are not promised to be identical across platforms.
 Requires micromamba (or mamba/conda).
 
 ```sh
-# 1. create the environment
-micromamba create -n vikshep-sim -f environment.yml
+# 1. create the environment from the lock file of your platform (exact packages, see "Lock files")
+micromamba create -n vikshep-sim -f conda-osx-arm64.lock      # macOS, Apple silicon
+micromamba create -n vikshep-sim -f conda-linux-64.lock       # Linux, x86-64
 micromamba activate vikshep-sim
+# any other platform: solve environment.yml instead (the versions in it are exact, builds may differ)
+#   micromamba create -n vikshep-sim -f environment.yml
 
 # 2. build
 cmake -S . -B build -G Ninja \
@@ -35,6 +38,31 @@ cmake --build build
 `Release` is the default build type if none is given; it is recorded in `provenance.json`
 (`build_type`) and the build refuses `-ffast-math`. The prefix flags make CMake prefer the environment's libraries over
 anything in the macOS SDK or the system.
+
+## Lock files
+
+`environment.yml` names the exact version of every package that affects the build or the tests
+(Geant4 11.4.3, CMake, Ninja, the C++ compiler metapackage, CLI11, nlohmann_json, Python, pyarrow,
+numpy, matplotlib, and so on). `conda-linux-64.lock` and `conda-osx-arm64.lock` go one step
+further: they list every package of the environment with its build and hash (an explicit conda
+spec, so nothing is solved at install time), and **CI installs from them**. The compilers (clang on
+macOS, gcc on Linux) come in through `cxx-compiler` and are fixed by the lock files, not named in
+`environment.yml`.
+
+To refresh them (after changing `environment.yml`, or to pick up newer builds):
+
+```sh
+scripts/refresh-locks.sh              # both platforms; or: scripts/refresh-locks.sh linux-64
+git diff --stat conda-*.lock          # read the changes; a Geant4 or compiler change needs a re-check
+```
+
+The script needs only micromamba and python3. It solves `environment.yml` for each platform (from
+any host; it sets the glibc and macOS version the target is assumed to have), and writes the URLs
+and md5 hashes in install order. Running it twice gives identical files. After a refresh, build
+and run the whole test suite on each platform (CI does that on the pull request) and record the
+new versions in STATUS.md. A change of Geant4 or of the compiler changes simulation output; the
+golden OIDs of `tests/golden/RUN_OIDS.txt` are keyed by the build and need re-recording
+(`tests/check_spec10_golden.py ... --record`).
 
 ## Geant4 data sets
 
@@ -88,7 +116,7 @@ micromamba install -n vikshep-sim -c conda-forge geant4-data-emlow   # example
   the sidecar contract. It runs the spec in Geant4 and prints, on stdout, the
   mean energy deposited per layer in the absorber and in the active slab, the
   mean total and the mean fraction of the incident energy. Geant4's own output
-  goes to stderr. It will be replaced by `run`. With `--out <folder>` it also writes
+  goes to stderr. It reports the `layered_calorimeter` template only (use `run` for `tracker_barrel`). It will be replaced by `run`. With `--out <folder>` it also writes
   `hits.arrow`, `provenance.json` and `run_summary.json` (docs/HITS.md, docs/SIDECAR.md,
   section 5) into a new folder, atomically, and prints the OID; the folder must not
   exist. `--event-digests <file>` writes one fingerprint line per event.
@@ -102,9 +130,21 @@ ctest --test-dir build --output-on-failure
 
 ## Documents
 
-- docs/SPEC.md and docs/spec.schema.json: the simulation spec.
+- docs/SPEC.md and docs/spec.schema.json: the simulation spec (versions 1.0 and 1.1).
 - docs/HITS.md: the hits.arrow format.
 - docs/SIDECAR.md: the command-line contract with the desktop app.
+
+## Tracker barrel and magnetic field (spec 1.1)
+
+`docs/examples/tracker_muon.json` is a barrel of six 0.3 mm silicon layers (radii 50 to 300 mm,
+1 m long) in a uniform 2 T field along z, with a 1 GeV mu- fired from the origin along +x. Everything
+about the geometry, the layer numbering, the field and its sign convention is in docs/SPEC.md,
+sections 2.5 to 2.7. A spec written as 1.0 keeps its meaning: the same bytes, OID and `spec_oid`.
+
+```sh
+./build/vikshep-sim run --spec docs/examples/tracker_muon.json --out tracker_run
+python scripts/plot_event.py tracker_run --event 0 --out tracker.png
+```
 
 ## Plotting a run
 
@@ -118,6 +158,10 @@ state their units (mm, MeV). The geometry is read from `provenance.json`.
 ./build/vikshep-sim dev-run --spec docs/examples/electron_shower.json --out electron_run
 python scripts/plot_event.py electron_run --event 0 --out shower.png
 ```
+
+For a tracker run the picture has the transverse view (x-y, layers as rings), the side view (z-r)
+and the energy per layer; with a field it also draws a circle fitted to the primary track and
+prints its radius and the pT it implies (`pT = 0.299792458 B R`).
 
 Several run folders give one column per run, for comparing runs side by side:
 `python scripts/plot_event.py electron_run pion_run --event 0 --out compare.png`.
@@ -136,7 +180,7 @@ scripts/compare_particles.sh compare_out      # runs both, writes electron.png, 
 ```
 
 The script refuses to write into a folder that already exists. It expects the program
-at `build/vikshep-sim` (set `VIKSHEP_SIM` for another path) and the environment to be
+at `build/vikshep-sim` of the repository the script is in, whatever the current directory (set `VIKSHEP_SIM_BIN` or pass `--exe` for another path) and the environment to be
 active.
 
 ## Rules check
