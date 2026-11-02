@@ -195,3 +195,79 @@ TEST_CASE("compare_particles.sh refuses a missing executable", "[plot]")
   CHECK(r.out.find("not found") != std::string::npos);
   CHECK_FALSE(fs::exists(dir.out("c")));
 }
+
+// ---------------------------------------------------------------- tracker_barrel runs (spec 1.1)
+
+namespace {
+
+json tracker_spec(const json& field_t)
+{
+  json layers = json::array();
+  for (int radius : {50, 100, 150, 200}) {
+    layers.push_back({{"radius_mm", radius}, {"thickness_mm", 0.3}, {"half_length_mm", 400}});
+  }
+  return {{"spec_version", "1.1"}, {"template", "tracker_barrel"}, {"geometry", {{"layers", layers}}},
+          {"field", {{"B_T", field_t}}}, {"gun", {{"particle", "mu-"}, {"energy_GeV", 1.0}}},
+          {"events", 5}, {"seed", 3}};
+}
+
+void make_tracker_run(const json& spec, const std::string& out)
+{
+  const cli::TempFile spec_file(spec.dump());
+  REQUIRE(cli::run("run --threads 2 --spec \"" + spec_file.path() + "\" --out \"" + out + "\"").code == 0);
+}
+
+}  // namespace
+
+TEST_CASE("plot_event.py draws a tracker event with three panels and prints the circle fit", "[plot][geant4]")
+{
+  SKIP_WITHOUT_DATA_SETS();
+  cli::TempDir dir;
+  make_tracker_run(tracker_spec({0, 0, 2}), dir.out("run"));
+  const std::string png = dir.out("tracker.png");
+  const cli::Outcome r = plot("\"" + dir.out("run") + "\" --event 1 --out \"" + png + "\"");
+  INFO(r.out);
+  REQUIRE(r.code == 0);
+  CHECK(r.out.find("primary circle fit: R = ") != std::string::npos);
+  CHECK(r.out.find("GeV/c") != std::string::npos);
+  REQUIRE(fs::exists(png));
+  CHECK(fs::file_size(png) > 10000);
+  std::uint32_t w = 0, h = 0;
+  REQUIRE(png_size(png, w, h));
+  CHECK(w > 2000);  // transverse view, side view and layers side by side
+  CHECK(w > 2 * h);
+}
+
+TEST_CASE("plot_event.py draws a tracker run without a field and without a fit", "[plot][geant4]")
+{
+  SKIP_WITHOUT_DATA_SETS();
+  cli::TempDir dir;
+  make_tracker_run(tracker_spec({0, 0, 0}), dir.out("run"));
+  const cli::Outcome r = plot("\"" + dir.out("run") + "\" --event 0 --out \"" + dir.out("t.png") + "\"");
+  INFO(r.out);
+  REQUIRE(r.code == 0);
+  CHECK(r.out.find("circle fit") == std::string::npos);
+  CHECK(fs::file_size(dir.out("t.png")) > 10000);
+}
+
+TEST_CASE("plot_event.py compares tracker runs and refuses to mix templates", "[plot][geant4]")
+{
+  SKIP_WITHOUT_DATA_SETS();
+  cli::TempDir dir;
+  make_tracker_run(tracker_spec({0, 0, 2}), dir.out("a"));
+  make_tracker_run(tracker_spec({0, 0, 1}), dir.out("b"));
+  const cli::Outcome same = plot("\"" + dir.out("a") + "\" \"" + dir.out("b") + "\" --event 2 --out \"" +
+                                 dir.out("cmp.png") + "\"");
+  INFO(same.out);
+  REQUIRE(same.code == 0);
+  std::uint32_t w = 0, h = 0;
+  REQUIRE(png_size(dir.out("cmp.png"), w, h));
+  CHECK(h > w);  // three rows, two columns
+
+  make_run(small_spec(), dir.out("calo"));
+  const cli::Outcome mixed = plot("\"" + dir.out("a") + "\" \"" + dir.out("calo") + "\" --out \"" +
+                                  dir.out("mixed.png") + "\"");
+  CHECK(mixed.code != 0);
+  CHECK(mixed.out.find("different templates") != std::string::npos);
+  CHECK_FALSE(fs::exists(dir.out("mixed.png")));
+}
