@@ -103,6 +103,11 @@ int run_dev(const std::string& path, int threads, const std::string& digests_pat
     return kExitUsageOrSpec;
   }
   const nlohmann::json spec = resolve_spec(load.spec);
+  if (spec.at("template") != "layered_calorimeter") {
+    std::cerr << "dev-run reports the layered_calorimeter template only; use 'run' for "
+              << spec.at("template").get<std::string>() << "\n";
+    return kExitUsageOrSpec;
+  }
 
   const auto missing = find_missing_data_sets(
       required_data_sets(spec.at("physics").at("list").get<std::string>()));

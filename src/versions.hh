@@ -5,9 +5,13 @@
 //   spec_version:     docs/SPEC.md
 //   hits schema:      docs/HITS.md
 constexpr int kContractVersion = 1;
-constexpr const char* kSpecVersion = "1.0";
+// The spec versions this build accepts, oldest first. A spec keeps the version it was written
+// with (docs/SPEC.md, section 2.7).
+constexpr const char* kSpecVersion10 = "1.0";
+constexpr const char* kSpecVersion11 = "1.1";
 constexpr const char* kHitsSchemaVersion = "1.0";
 constexpr const char* kTemplateLayeredCalorimeter = "layered_calorimeter";
+constexpr const char* kTemplateTrackerBarrel = "tracker_barrel";
 
 // The vendored nanoarrow (third_party/nanoarrow/README.md). The version string
 // itself comes from the library (NANOARROW_VERSION).

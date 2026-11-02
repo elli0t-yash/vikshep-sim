@@ -6,9 +6,9 @@
 // One row of hits.arrow (docs/HITS.md, section 2), in the units of that
 // document: mm, ns, MeV, MeV/c.
 struct Hit {
-  int volume = 0;  // slab type: 0 = "absorber", 1 = "active" (names: kSlabNames)
+  int volume = 0;  // index into kVolumeNames: 0 "absorber", 1 "active", 2 "tracker_layer"
   std::int32_t copy_no = 0;
-  std::int32_t layer = -1;  // -1 when the template has no layers
+  std::int32_t layer = -1;  // layer index, 0 = front (calorimeter) or innermost (tracker); -1 if none
   double x_mm = 0.0;        // step midpoint
   double y_mm = 0.0;
   double z_mm = 0.0;
@@ -29,5 +29,10 @@ struct EventHits {
   std::vector<Hit> hits;
 };
 
-// Slab type names, sorted bytewise (the order of the volume dictionary).
-constexpr const char* kSlabNames[2] = {"absorber", "active"};
+// Names of the sensitive volumes of all templates, sorted bytewise (the order of the volume
+// dictionary, docs/HITS.md section 5.3). A run uses the subset that its spec makes sensitive.
+constexpr int kVolumeCount = 3;
+constexpr const char* kVolumeNames[kVolumeCount] = {"absorber", "active", "tracker_layer"};
+constexpr int kVolumeAbsorber = 0;
+constexpr int kVolumeActive = 1;
+constexpr int kVolumeTrackerLayer = 2;

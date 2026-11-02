@@ -24,7 +24,8 @@ int run_validate(const std::string& path, bool canonical)
     std::cout << canonical_spec(load.spec) << "\n";
   }
   else {
-    std::cout << nlohmann::json({{"event", "valid"}, {"spec_version", kSpecVersion}}).dump()
+    // The spec's own version: a spec written as 1.0 is reported as 1.0.
+    std::cout << nlohmann::json({{"event", "valid"}, {"spec_version", load.spec.at("spec_version")}}).dump()
               << "\n";
   }
   return kExitOk;

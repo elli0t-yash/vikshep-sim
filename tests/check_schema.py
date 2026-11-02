@@ -33,7 +33,7 @@ def edit(spec, pointer, value):
     node = spec
     for part in parts[:-1]:
         node = node[int(part)] if isinstance(node, list) else node.setdefault(part, {})
-    last = parts[-1]
+    last = int(parts[-1]) if isinstance(node, list) else parts[-1]
     if value is DEL:
         del node[last]
     else:
@@ -130,6 +130,92 @@ cases.append(("gun outside world x", edit(base, "/gun/position_mm", [150, 0, 0])
 cases.append(("gun on world boundary", edit(base, "/gun/position_mm", [0, 0, 175]), "catalogue"))
 cases.append(("gun inside world", edit(base, "/gun/position_mm", [149, -149, 174]), "valid"))
 cases.append(("bad physics list", edit(base, "/physics/list", "NOT_A_LIST"), "catalogue"))
+
+# ---- spec 1.1: tracker_barrel and field
+tracker = json.loads((examples_dir / "tracker_muon.json").read_text())
+
+
+def many_layers(n):
+    return [{"radius_mm": 10.0 + 10.0 * i, "thickness_mm": 1, "half_length_mm": 100} for i in range(n)]
+
+
+def build(spec, edits):
+    for pointer, value in edits:
+        spec = edit(spec, pointer, value)
+    return spec
+
+
+tracker_valid = [
+    ("tracker explicit defaults", [("/gun/position_mm", [0, 0, 0]), ("/gun/direction", [1, 0, 0]),
+                                   ("/sensitive", ["tracker_layer"]), ("/field", {"B_T": [0, 0, 0]}),
+                                   ("/geometry/layers/0/material", "G4_Si")]),
+    ("tracker empty field", [("/field", {})]),
+    ("tracker no field", [("/field", DEL)]),
+    ("tracker other material", [("/geometry/layers/2/material", "G4_Ge")]),
+    ("tracker 100 layers", [("/geometry/layers", many_layers(100))]),
+    ("tracker single layer", [("/geometry/layers", many_layers(1))]),
+    ("tracker field along x", [("/field/B_T", [3, 0, 0])]),
+    ("tracker integer-valued floats", [("/geometry/layers/0/radius_mm", 50.0), ("/events", 50.0)]),
+    ("tracker limits", [("/geometry/layers/5/radius_mm", 10000), ("/geometry/layers/5/half_length_mm", 10000)]),
+    ("calorimeter as 1.1", [("/spec_version", "1.1")]),
+]
+for name, edits in tracker_valid:
+    cases.append((name, build(tracker, edits), "valid"))
+cases.append(("calorimeter as 1.1 with field", build(base, [("/spec_version", "1.1"), ("/field", {"B_T": [0, 0, 1]})]),
+              "valid"))
+
+tracker_invalid = [
+    ("tracker in 1.0", [("/spec_version", "1.0")]),
+    ("version 1.2", [("/spec_version", "1.2")]),
+    ("version 1", [("/spec_version", "1")]),
+    ("template misspelt", [("/template", "tracker_barel")]),
+    ("field B_T short", [("/field/B_T", [0, 2])]),
+    ("field B_T strings", [("/field/B_T", ["0", "0", "2"])]),
+    ("field B_T number", [("/field/B_T", 2)]),
+    ("field unknown key", [("/field/Bz_T", 2)]),
+    ("field array", [("/field", [0, 0, 2])]),
+    ("layers empty", [("/geometry/layers", [])]),
+    ("layers 101", [("/geometry/layers", many_layers(101))]),
+    ("layers integer", [("/geometry/layers", 6)]),
+    ("layer not object", [("/geometry/layers/1", 100)]),
+    ("layer radius missing", [("/geometry/layers/1/radius_mm", DEL)]),
+    ("layer thickness missing", [("/geometry/layers/1/thickness_mm", DEL)]),
+    ("layer half-length missing", [("/geometry/layers/1/half_length_mm", DEL)]),
+    ("layer radius zero", [("/geometry/layers/1/radius_mm", 0)]),
+    ("layer radius too large", [("/geometry/layers/1/radius_mm", 10000.5)]),
+    ("layer radius string", [("/geometry/layers/1/radius_mm", "100")]),
+    ("layer thickness zero", [("/geometry/layers/1/thickness_mm", 0)]),
+    ("layer half-length zero", [("/geometry/layers/1/half_length_mm", 0)]),
+    ("layer half-length too large", [("/geometry/layers/1/half_length_mm", 10000.5)]),
+    ("layer material number", [("/geometry/layers/1/material", 14)]),
+    ("layer material empty", [("/geometry/layers/1/material", "")]),
+    ("layer unknown key", [("/geometry/layers/1/radius", 100)]),
+    ("tracker with transverse_mm", [("/geometry/transverse_mm", 100)]),
+    ("tracker with absorber", [("/geometry/absorber", {"material": "G4_Pb", "thickness_mm": 1})]),
+    ("tracker sensitive active", [("/sensitive", ["active"])]),
+    ("tracker sensitive duplicate", [("/sensitive", ["tracker_layer", "tracker_layer"])]),
+    ("tracker sensitive empty", [("/sensitive", [])]),
+]
+for name, edits in tracker_invalid:
+    cases.append((name, build(tracker, edits), "invalid"))
+cases.append(("field in 1.0", edit(base, "/field", {"B_T": [0, 0, 1]}), "invalid"))
+cases.append(("calorimeter 1.1 with layers array", build(base, [("/spec_version", "1.1"), ("/geometry/layers", [])]),
+              "invalid"))
+cases.append(("calorimeter sensitive tracker_layer", edit(base, "/sensitive", ["tracker_layer"]), "invalid"))
+
+# the schema cannot compare array elements, use the world, or know the names of Geant4
+tracker_catalogue = [
+    ("layer thickness not below radius", [("/geometry/layers/1/thickness_mm", 100)]),
+    ("layer radius equal to previous", [("/geometry/layers/2/radius_mm", 100)]),
+    ("layer radius below previous", [("/geometry/layers/2/radius_mm", 60)]),
+    ("layer overlapping previous", [("/geometry/layers/1/radius_mm", 50.2)]),
+    ("field too strong", [("/field/B_T", [0, 0, 10.5])]),
+    ("layer bad material", [("/geometry/layers/2/material", "G4_Sii")]),
+    ("tracker gun outside world", [("/gun/position_mm", [0, 0, 700])]),
+]
+for name, edits in tracker_catalogue:
+    cases.append((name, build(tracker, edits), "catalogue"))
+cases.append(("tracker gun inside world", build(tracker, [("/gun/position_mm", [399, 0, 599])]), "valid"))
 
 failures = []
 with tempfile.TemporaryDirectory() as tmp:

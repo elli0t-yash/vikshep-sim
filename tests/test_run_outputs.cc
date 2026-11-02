@@ -211,6 +211,7 @@ TEST_CASE("run_summary.json has the keys of SIDECAR.md", "[summary]")
 {
   RunSummaryFacts f;
   f.oid = "0123456789abcdef0123456789ab";
+  f.spec_version = "1.0";
   f.events_requested = 20;
   f.events_completed = 20;
   f.events_with_hits = 18;

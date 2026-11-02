@@ -267,3 +267,39 @@ TEST_CASE("the writer scheme is 1", "[writer]")
   // Bump together with the golden files (see kGoldenMessage).
   CHECK(kWriterScheme == 1);
 }
+
+TEST_CASE("the tracker volume is a dictionary entry like the calorimeter's", "[writer]")
+{
+  const cli::TempFile a("", ".arrow");
+  const cli::TempFile b("", ".arrow");
+  // Hits of a tracker run: volume 2 is "tracker_layer", copy number and layer are the layer index.
+  const std::vector<EventHits> events = {
+      event(0, {make_hit(kVolumeTrackerLayer, 0, 0), make_hit(kVolumeTrackerLayer, 1, 1)}),
+      event(1, {}),
+      event(2, {make_hit(kVolumeTrackerLayer, 5, 2)}),
+  };
+  const auto first = write_file(a.path(), events, {"tracker_layer"}, 4);
+  const auto second = write_file(b.path(), events, {"tracker_layer"}, 4);
+  CHECK(first.rows == 3);
+  CHECK(first.oid == second.oid);
+  CHECK(read_file(a.path()) == read_file(b.path()));
+
+  // The full dictionary of all templates is sorted bytewise: absorber, active, tracker_layer.
+  CHECK(std::string(kVolumeNames[0]) < std::string(kVolumeNames[1]));
+  CHECK(std::string(kVolumeNames[1]) < std::string(kVolumeNames[2]));
+  const cli::TempFile c("", ".arrow");
+  const std::vector<EventHits> all = {event(0, {make_hit(0, 0, 0), make_hit(1, 0, 1), make_hit(2, 0, 2)})};
+  CHECK(write_file(c.path(), all, {"absorber", "active", "tracker_layer"}, 4).rows == 3);
+}
+
+TEST_CASE("a hit in a volume that is not in the dictionary is rejected, for every template", "[writer]")
+{
+  const cli::TempFile file("", ".arrow");
+  HitsWriter tracker(file.path(), {"tracker_layer"}, 4);
+  CHECK_THROWS_AS(tracker.add_event(event(0, {make_hit(kVolumeActive, 0, 0)})), std::invalid_argument);
+  CHECK_THROWS_AS(tracker.add_event(event(0, {make_hit(kVolumeCount, 0, 0)})), std::invalid_argument);
+  CHECK_THROWS_AS(tracker.add_event(event(0, {make_hit(-1, 0, 0)})), std::invalid_argument);
+  const cli::TempFile other("", ".arrow");
+  HitsWriter calorimeter(other.path(), {"absorber", "active"}, 4);
+  CHECK_THROWS_AS(calorimeter.add_event(event(0, {make_hit(kVolumeTrackerLayer, 0, 0)})), std::invalid_argument);
+}

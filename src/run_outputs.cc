@@ -65,7 +65,7 @@ json make_run_summary(const RunSummaryFacts& f)
       {"hits_schema_version", kHitsSchemaVersion},
       {"hits_total", f.hits_total},
       {"oid", f.oid},
-      {"spec_version", kSpecVersion},
+      {"spec_version", f.spec_version},
       {"threads", f.threads},
       {"wall_time_s", f.wall_time_s},
   };

@@ -133,6 +133,7 @@ include(Catch)
 
 add_executable(vikshep-tests
   tests/test_spec.cc
+  tests/test_tracker_spec.cc
   tests/test_cli.cc
   tests/test_datasets.cc
   tests/test_reorder_buffer.cc
@@ -232,3 +233,28 @@ add_test(NAME schema_matches_validator
           ${CMAKE_CURRENT_SOURCE_DIR}/docs/examples
 )
 set_tests_properties(schema_matches_validator PROPERTIES TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
+
+# Spec 1.0 keeps its meaning in a build that also accepts 1.1: spec_oid, validity and (for the
+# builds with a recorded value) the OID of hits.arrow of the three 1.0 examples.
+add_test(NAME spec_1_0_examples_unchanged
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_spec10_golden.py
+          $<TARGET_FILE:vikshep-sim>
+          ${CMAKE_CURRENT_SOURCE_DIR}/docs/examples
+          ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden
+)
+set_tests_properties(spec_1_0_examples_unchanged PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
+
+# tracker_barrel and the uniform field: determinism, zero field = no field, and the physics
+# (straight line at B = 0, radius of curvature pT = 0.3 B R), with the numbers printed.
+add_test(NAME tracker_determinism_and_zero_field
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_tracker_determinism.py
+          $<TARGET_FILE:vikshep-sim>
+          ${CMAKE_CURRENT_SOURCE_DIR}/docs/examples
+)
+set_tests_properties(tracker_determinism_and_zero_field PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
+
+add_test(NAME tracker_physics_straight_line_and_curvature
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_tracker_physics.py
+          $<TARGET_FILE:vikshep-sim>
+)
+set_tests_properties(tracker_physics_straight_line_and_curvature PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
