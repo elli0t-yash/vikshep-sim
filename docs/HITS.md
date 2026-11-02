@@ -54,6 +54,8 @@ The dictionary also changes the bytes, so it is part of the format.
   and no later dictionary batch).
 - Because the dictionary depends only on the geometry, it does not depend on
   which events happened to hit which volumes.
+- The names a template uses are listed in section 5.3. Adding a template adds
+  names there; it does not change this rule, the columns or the schema version.
 
 ## 2. Columns
 
@@ -64,7 +66,7 @@ Columns appear in exactly this order, with exactly these names and types.
 | 1 | event_id | uint64 | none (index) | 0-based event index, see 4.1 |
 | 2 | volume | dictionary<int32, utf8> | none (name) | name of the sensitive physical volume |
 | 3 | copy_no | int32 | none (index) | copy number of that physical volume |
-| 4 | layer | int32 | none (index) | layer index; -1 when the geometry has no layers or the volume is not in a layer |
+| 4 | layer | int32 | none (index) | layer index, counted as section 5.1 says for the template; -1 when the geometry has no layers or the volume is not in a layer |
 | 5 | x | float64 | mm | step midpoint, x |
 | 6 | y | float64 | mm | step midpoint, y |
 | 7 | z | float64 | mm | step midpoint, z |
@@ -190,6 +192,23 @@ within each layer the absorber slab comes first and the active slab second. The
 world is a box centred on the origin, larger than the stack by 200 mm in every
 dimension. The `layer` column is the layer index counted from the front.
 
+For the `tracker_barrel` template (SPEC.md, section 2.5): the layers are
+concentric cylinders around the z axis, the barrel is centred on the origin and
+each layer spans `-half_length` to `+half_length` in z. The `layer` column is
+the layer index counted from the innermost layer (0), which is also the
+`copy_no`. The world is a box centred on the origin, larger than the
+barrel by 200 mm in every dimension (100 mm on each side). The step midpoint
+`x`, `y` is in the global frame, so the radius of a hit is `sqrt(x*x + y*y)`.
+The midpoint of a step is the mean of its two end points (section 2), not a
+point on the particle's path: for a step that runs nearly tangentially inside a
+wall, or along a curved path in a field, it may lie slightly outside the wall.
+Readers that need a radius should treat it as approximate to within the step
+length.
+
+A magnetic field (SPEC.md, section 2.6) does not change any column or unit:
+`px, py, pz` are the momentum at the pre-step point, so in a field they change
+from step to step.
+
 ### 5.2 Events with zero hits
 
 An event with no hits has **no rows**. It is not represented in `hits.arrow`
@@ -197,6 +216,16 @@ at all. The number of events with and without hits is recorded in
 `run_summary.json` (see SIDECAR.md). A run in which no event has a hit still
 produces a valid `hits.arrow`: schema, dictionary, footer, and zero record
 batches.
+
+### 5.3 Volume names by template
+
+The dictionary of section 1.2 holds the names below, sorted bytewise, for the
+sensitive volumes of the run.
+
+| Template | Names that can appear | `copy_no` | `layer` |
+|----------|-----------------------|-----------|---------|
+| `layered_calorimeter` | `absorber`, `active` | layer index | layer index |
+| `tracker_barrel` | `tracker_layer` | layer index (0 = innermost) | the same index |
 
 ## 6. Fingerprint (OID)
 
