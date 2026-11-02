@@ -20,3 +20,7 @@ Thumbs.db
 
 # output of scripts/compare_particles.sh when run in the repository
 compare_particles_out/
+
+# python bytecode
+__pycache__/
+*.pyc
