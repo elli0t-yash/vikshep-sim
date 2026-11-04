@@ -272,3 +272,14 @@ add_test(NAME export3d_files_and_oid_unchanged
           ${CMAKE_CURRENT_SOURCE_DIR}/tests/trajectories.schema.json
 )
 set_tests_properties(export3d_files_and_oid_unchanged PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
+
+# geometry.glb of both examples passes the Khronos glTF Validator (pinned in tests/gltf-validator)
+# with no error and no warning. Skipped (77) without node or `npm ci` there; a failure under
+# VIKSHEP_REQUIRE_DATA.
+add_test(NAME export3d_glb_khronos_validator
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_glb_validator.py
+          $<TARGET_FILE:vikshep-sim>
+          ${CMAKE_CURRENT_SOURCE_DIR}/docs/examples
+          ${CMAKE_CURRENT_SOURCE_DIR}
+)
+set_tests_properties(export3d_glb_khronos_validator PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT ${VIKSHEP_TEST_TIMEOUT})

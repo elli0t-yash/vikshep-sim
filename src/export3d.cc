@@ -64,24 +64,24 @@ std::string base_name(const std::string& path)
 
 // ------------------------------------------------------------------ trajectories.json
 
+bool track_kept_before(const TrackRecord& a, const TrackRecord& b)
+{
+  const bool pa = a.parent_id == 0;
+  const bool pb = b.parent_id == 0;
+  if (pa != pb) {
+    return pa;  // primaries first
+  }
+  if (!pa && a.kinetic_energy_start_gev != b.kinetic_energy_start_gev) {
+    return a.kinetic_energy_start_gev > b.kinetic_energy_start_gev;
+  }
+  return a.track_id < b.track_id;
+}
+
 EventTracks select_tracks(std::vector<TrackRecord> eligible, std::uint32_t tracks_total)
 {
   const std::size_t cap = static_cast<std::size_t>(kExportMaxTracksPerEvent);
   if (eligible.size() > cap) {
-    std::stable_sort(eligible.begin(), eligible.end(), [](const TrackRecord& a, const TrackRecord& b) {
-      const bool pa = a.parent_id == 0;
-      const bool pb = b.parent_id == 0;
-      if (pa != pb) {
-        return pa;  // primaries first
-      }
-      if (pa) {
-        return a.track_id < b.track_id;
-      }
-      if (a.kinetic_energy_start_gev != b.kinetic_energy_start_gev) {
-        return a.kinetic_energy_start_gev > b.kinetic_energy_start_gev;
-      }
-      return a.track_id < b.track_id;
-    });
+    std::stable_sort(eligible.begin(), eligible.end(), track_kept_before);
     eligible.resize(cap);
   }
   std::sort(eligible.begin(), eligible.end(),
@@ -90,6 +90,43 @@ EventTracks select_tracks(std::vector<TrackRecord> eligible, std::uint32_t track
   result.tracks_total = tracks_total;
   result.tracks = std::move(eligible);
   return result;
+}
+
+bool TrackSelector::begin_track(TrackRecord start)
+{
+  const std::size_t cap = static_cast<std::size_t>(kExportMaxTracksPerEvent);
+  if (kept_.size() >= cap) {
+    // The worst stored track is the one that is pushed out, if the new one ranks before it.
+    // It is searched for only after a push-out: a refused track leaves it where it was.
+    if (!worst_valid_) {
+      worst_ = 0;
+      for (std::size_t i = 1; i < kept_.size(); ++i) {
+        if (track_kept_before(kept_[worst_], kept_[i])) {
+          worst_ = i;
+        }
+      }
+      worst_valid_ = true;
+    }
+    if (!track_kept_before(start, kept_[worst_])) {
+      return false;
+    }
+    kept_[worst_] = std::move(kept_.back());
+    kept_.pop_back();
+    worst_valid_ = false;
+  }
+  kept_.push_back(std::move(start));
+  peak_ = std::max(peak_, kept_.size());
+  return true;
+}
+
+void TrackSelector::add_point(const std::array<double, 3>& point)
+{
+  kept_.back().points.push_back(point);
+}
+
+EventTracks TrackSelector::finish(std::uint32_t tracks_total)
+{
+  return select_tracks(std::move(kept_), tracks_total);
 }
 
 std::string format_fixed(double value, int decimals)

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <fstream>
 #include <string>
@@ -42,6 +44,33 @@ struct ExportedFile {
 // primaries first, then by descending energy, ties by ascending track_id; the result is in
 // ascending track_id. tracks_total is the number of tracks Geant4 created in the event.
 EventTracks select_tracks(std::vector<TrackRecord> eligible, std::uint32_t tracks_total);
+
+// The order of EXPORT3D.md, section 4.3, as a strict total order: true when `a` is kept in
+// preference to `b` (primaries first, by ascending track_id; then descending energy, ties by
+// ascending track_id). select_tracks and TrackSelector both use it, so they keep the same tracks.
+bool track_kept_before(const TrackRecord& a, const TrackRecord& b);
+
+// The same selection made while the event is being tracked, so that memory is bounded by the
+// limit and not by the size of the shower: it never holds more than kExportMaxTracksPerEvent
+// tracks. A track's rank is known when it starts, so a track that can no longer be among the kept
+// ones is refused at once (no points are collected for it) and a stored one that is pushed out is
+// freed. finish() returns exactly what select_tracks gives for all the tracks of the event.
+class TrackSelector {
+ public:
+  // Offers a track that passed the energy test (its first point is already in `start`). Returns
+  // true if it is stored; add_point then appends to it, until the next begin_track.
+  bool begin_track(TrackRecord start);
+  void add_point(const std::array<double, 3>& point);
+  std::size_t stored() const { return kept_.size(); }
+  std::size_t peak_stored() const { return peak_; }
+  EventTracks finish(std::uint32_t tracks_total);
+
+ private:
+  std::vector<TrackRecord> kept_;
+  std::size_t peak_ = 0;
+  std::size_t worst_ = 0;   // index of the stored track that ranks last, when worst_valid_
+  bool worst_valid_ = false;
+};
 
 // printf "%.<decimals>f" with "-0.000" written as "0.000". Throws ExportError for NaN and infinity.
 std::string format_fixed(double value, int decimals);

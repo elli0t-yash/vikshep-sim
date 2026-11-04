@@ -406,8 +406,9 @@ class PrimaryGenerator : public G4VUserPrimaryGeneratorAction {
 struct TrackCollector {
   bool active = false;
   std::uint32_t total = 0;             // every track Geant4 created in the event
-  std::vector<TrackRecord> eligible;   // primaries and tracks at or above the minimum energy
-  long current = -1;                   // index in `eligible` of the track being tracked, or -1
+  TrackSelector selector;              // at most kExportMaxTracksPerEvent of the primaries and the tracks at
+                                       // or above the minimum energy, chosen while the event runs
+  bool collecting = false;             // the track being tracked is stored in `selector`
 };
 
 TrackCollector& thread_tracks()
@@ -431,7 +432,7 @@ class ExportTrackingAction : public G4UserTrackingAction {
     const double energy_gev = track->GetKineticEnergy() / GeV;
     const bool primary = track->GetParentID() == 0;
     if (!primary && !(energy_gev >= min_energy_gev_)) {
-      c.current = -1;
+      c.collecting = false;
       return;
     }
     TrackRecord record;
@@ -442,11 +443,10 @@ class ExportTrackingAction : public G4UserTrackingAction {
     record.kinetic_energy_start_gev = energy_gev;
     const G4ThreeVector start = track->GetPosition();
     record.points.push_back({start.x() / mm, start.y() / mm, start.z() / mm});
-    c.eligible.push_back(std::move(record));
-    c.current = static_cast<long>(c.eligible.size()) - 1;
+    c.collecting = c.selector.begin_track(std::move(record));
   }
 
-  void PostUserTrackingAction(const G4Track*) override { thread_tracks().current = -1; }
+  void PostUserTrackingAction(const G4Track*) override { thread_tracks().collecting = false; }
 
  private:
   double min_energy_gev_;
@@ -458,11 +458,11 @@ class ExportSteppingAction : public G4UserSteppingAction {
   void UserSteppingAction(const G4Step* step) override
   {
     TrackCollector& c = thread_tracks();
-    if (!c.active || c.current < 0) {
+    if (!c.active || !c.collecting) {
       return;
     }
     const G4ThreeVector p = step->GetPostStepPoint()->GetPosition();
-    c.eligible[static_cast<std::size_t>(c.current)].points.push_back({p.x() / mm, p.y() / mm, p.z() / mm});
+    c.selector.add_point({p.x() / mm, p.y() / mm, p.z() / mm});
   }
 };
 
@@ -494,7 +494,7 @@ class EventAction : public G4UserEventAction {
     thread_event_hits().clear();
     TrackCollector& collected = thread_tracks();
     if (collected.active) {
-      finished.trajectories = select_tracks(std::move(collected.eligible), collected.total);
+      finished.trajectories = collected.selector.finish(collected.total);
       collected = TrackCollector();
     }
     try {

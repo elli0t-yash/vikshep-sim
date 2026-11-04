@@ -10,6 +10,12 @@
 
   three.js 0.160.0 is loaded from the jsDelivr CDN (exact version, below), so the browser needs
   network access to cdn.jsdelivr.net. Nothing else is fetched and nothing is sent anywhere.
+  Each of the four three.js files has a Subresource Integrity hash (sha384) and crossorigin
+  below: in the import map ("integrity", enforced by browsers that support it) and on the
+  modulepreload links (integrity and crossorigin attributes). A file that does not match is
+  refused and the page shows the error. The hashes are those of the files of the npm package
+  three@0.160.0 (the CDN serves the same bytes); to change the version, change the four URLs and
+  recompute: openssl dgst -sha384 -binary <file> | openssl base64 -A
 
   Serve a folder that contains this page and the run folder, then open the page with ?run=<folder>:
 
@@ -97,8 +103,29 @@
 <script type="importmap">
 { "imports": {
     "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" },
+  "integrity": {
+    "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js":
+      "sha384-61S/Nu32S3E5+n+KpCOTb2eRYps6fVKm+9Gz1QBvSePFthb46f063Aa/qe/lykFZ",
+    "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js":
+      "sha384-qlO/ZugKPxAQUAvTlQoo0QECzxJIJySZmCF/DHdb2Xn/hHndFwX/vfUAC9Hbk6LP",
+    "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js":
+      "sha384-oxY9vSeh7Mrt5WmhN8xfWoDRnmoW9krEiRBY7vJKaK90jMUidM0fhbUwcblpBgTu",
+    "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js":
+      "sha384-jHGXS4+FuVOBnZkNme2ury3Ccg5DWDLYK22xX/WGdZCZsjRM4J+3n6Qc4CXx1Hjf" } }
 </script>
+<link rel="modulepreload" crossorigin="anonymous"
+      href="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+      integrity="sha384-61S/Nu32S3E5+n+KpCOTb2eRYps6fVKm+9Gz1QBvSePFthb46f063Aa/qe/lykFZ">
+<link rel="modulepreload" crossorigin="anonymous"
+      href="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js"
+      integrity="sha384-qlO/ZugKPxAQUAvTlQoo0QECzxJIJySZmCF/DHdb2Xn/hHndFwX/vfUAC9Hbk6LP">
+<link rel="modulepreload" crossorigin="anonymous"
+      href="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js"
+      integrity="sha384-oxY9vSeh7Mrt5WmhN8xfWoDRnmoW9krEiRBY7vJKaK90jMUidM0fhbUwcblpBgTu">
+<link rel="modulepreload" crossorigin="anonymous"
+      href="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js"
+      integrity="sha384-jHGXS4+FuVOBnZkNme2ury3Ccg5DWDLYK22xX/WGdZCZsjRM4J+3n6Qc4CXx1Hjf">
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';

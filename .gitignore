@@ -1,3 +1,6 @@
+# test tooling installed by npm ci
+node_modules/
+
 # build directories
 build/
 build-*/

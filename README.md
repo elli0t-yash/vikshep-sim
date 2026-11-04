@@ -164,7 +164,7 @@ python3 -m http.server 8000          # in a folder that contains tracker_run and
 # then open  http://localhost:8000/scripts/view_3d.html?run=/tracker_run
 ```
 
-`scripts/view_3d.html` is a local page (three.js 0.160.0 from the jsDelivr CDN) with orbit controls,
+`scripts/view_3d.html` is a local page (three.js 0.160.0 from the jsDelivr CDN, with integrity hashes) with orbit controls,
 an event selector and volume toggles; run `python3 -m http.server` from the directory that holds both
 the repository's `scripts/` folder and the run folder (the repository root works if the run folder is
 inside it), or pick the two files with the page's file choosers. It is only for looking; it is not the

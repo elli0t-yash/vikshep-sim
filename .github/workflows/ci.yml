@@ -69,6 +69,16 @@ jobs:
             echo 'micromamba activate vikshep-sim'
           } > "$BASH_ENV"
 
+      # geometry.glb is checked with the Khronos glTF Validator, pinned to an exact version in
+      # tests/gltf-validator/package-lock.json (test tooling only; nothing of it is shipped).
+      - name: Node for the glTF validator
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install the glTF validator
+        run: npm ci --no-audit --no-fund --prefix tests/gltf-validator
+
       - name: Environment
         run: |
           echo "lock file: conda-${{ matrix.platform }}.lock ($(grep -c '^http' conda-${{ matrix.platform }}.lock) packages)"

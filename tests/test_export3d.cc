@@ -168,6 +168,70 @@ TEST_CASE("over the cap: primaries first, then the most energetic, ties by track
   for (std::size_t i = 0; i < r.tracks.size(); ++i) CHECK(r.tracks[i].track_id == r2.tracks[i].track_id);
 }
 
+// The selection made while the event runs (memory bounded) must give exactly the file the
+// documented rule gives for all the tracks (EXPORT3D.md, 4.3).
+TEST_CASE("TrackSelector bounds the stored tracks and keeps what select_tracks keeps", "[export3d]")
+{
+  const std::size_t cap = static_cast<std::size_t>(kExportMaxTracksPerEvent);
+  // 5000 secondaries with many equal energies, three primaries (one of tiny energy, one arriving
+  // late), in three arrival orders: track_id order (as Geant4 gives them), reversed, interleaved.
+  std::vector<TrackRecord> all;
+  for (int i = 1; i <= 5000; ++i) {
+    all.push_back(track(i, 1, 0.001 + 1e-6 * ((i * 37) % 101), 1 + i % 4));
+  }
+  all.push_back(track(5001, 0, 0.0001));
+  all.push_back(track(5002, 0, 2.0));
+  all.push_back(track(5003, 0, 0.5));
+  std::vector<std::vector<TrackRecord>> orders;
+  orders.push_back(all);
+  orders.push_back(std::vector<TrackRecord>(all.rbegin(), all.rend()));
+  std::vector<TrackRecord> interleaved;
+  for (std::size_t i = 0; i < all.size() / 2; ++i) {
+    interleaved.push_back(all[i]);
+    interleaved.push_back(all[all.size() - 1 - i]);
+  }
+  orders.push_back(interleaved);
+
+  const EventTracks want = select_tracks(all, 5003);
+  REQUIRE(want.tracks.size() == cap);
+  for (const std::vector<TrackRecord>& order : orders) {
+    TrackSelector selector;
+    std::size_t refused = 0;
+    for (const TrackRecord& t : order) {
+      TrackRecord start = t;
+      start.points.assign(1, t.points.front());  // only the creation point, as the tracking action gives
+      if (selector.begin_track(std::move(start))) {
+        for (std::size_t k = 1; k < t.points.size(); ++k) selector.add_point(t.points[k]);
+      } else {
+        ++refused;
+      }
+      CHECK(selector.stored() <= cap);  // bounded during the event, not only at the end
+    }
+    CHECK(selector.peak_stored() == cap);
+    CHECK(refused > 0);
+    const EventTracks got = selector.finish(5003);
+    REQUIRE(got.tracks.size() == want.tracks.size());
+    CHECK(got.dropped() == want.dropped());
+    for (std::size_t i = 0; i < want.tracks.size(); ++i) {
+      CHECK(got.tracks[i].track_id == want.tracks[i].track_id);
+      CHECK(got.tracks[i].points == want.tracks[i].points);
+    }
+    // so the bytes of the file are the same
+    CHECK(trajectories_event_json(0, got) == trajectories_event_json(0, want));
+  }
+}
+
+TEST_CASE("TrackSelector under the cap keeps everything", "[export3d]")
+{
+  TrackSelector selector;
+  for (int i = 1; i <= 40; ++i) {
+    REQUIRE(selector.begin_track(track(i, i == 1 ? 0 : 1, 0.01, 1)));
+  }
+  const EventTracks r = selector.finish(90);
+  CHECK(r.tracks.size() == 40);
+  CHECK(r.dropped() == 50);
+}
+
 TEST_CASE("the trajectory writer writes the documented layout and reports size and OID", "[export3d]")
 {
   const cli::TempFile file("", ".json");

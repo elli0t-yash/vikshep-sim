@@ -258,6 +258,14 @@ thread finished first.
    `track_id`, until 500 are kept. The kept tracks are then written in ascending
    `track_id`.
 
+The rule is applied while the event is being tracked, not after it: the
+simulator never holds more than 500 tracks of an event. A track's rank (primary,
+then energy, then `track_id`) is known when it starts, so a track that cannot be
+among the 500 is not recorded at all, and a recorded one that is pushed out by a
+better-ranked one is freed. The file is exactly the one the rule above gives
+for all tracks of the event; only the memory is bounded. What this does not bound
+is the size of Geant4's own track stack, which the export does not touch.
+
 `dropped_tracks` (3.2) is the count of the tracks removed by 2 and 3 together.
 A track's hits in `hits.arrow` are unaffected by whether the track was kept.
 
@@ -270,6 +278,11 @@ A track's hits in `hits.arrow` are unaffected by whether the track was kept.
   of the export writes nothing: the temporary folder is removed and the run
   ends with the error `INTERNAL` (SIDECAR.md, section 4), never with a
   partial output folder.
+- Test hook, not a feature: if the environment variable
+  `VIKSHEP_TEST_EXPORT_FAIL` is `1`, the export fails on purpose, so that the
+  test suite can check the paragraph above. It exists only for tests, it is not
+  part of any contract (SIDECAR.md does not list it), it may be removed or
+  renamed without a version change, and no user or tool should set it.
 - The OID of an exported file is the first 14 bytes of the SHA3-256 digest of
   its complete bytes, as 28 lowercase hex characters (HITS.md, section 6). It is
   recorded in `provenance.json` and `run_summary.json` as described in
