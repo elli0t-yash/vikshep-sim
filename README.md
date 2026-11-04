@@ -133,6 +133,7 @@ ctest --test-dir build --output-on-failure
 - docs/SPEC.md and docs/spec.schema.json: the simulation spec (versions 1.0 and 1.1).
 - docs/HITS.md: the hits.arrow format.
 - docs/SIDECAR.md: the command-line contract with the desktop app.
+- docs/EXPORT3D.md: the optional 3-D export (`geometry.glb`, `trajectories.json`).
 
 ## Tracker barrel and magnetic field (spec 1.1)
 
@@ -145,6 +146,29 @@ sections 2.5 to 2.7. A spec written as 1.0 keeps its meaning: the same bytes, OI
 ./build/vikshep-sim run --spec docs/examples/tracker_muon.json --out tracker_run
 python scripts/plot_event.py tracker_run --event 0 --out tracker.png
 ```
+
+## 3-D export (optional)
+
+`run --export-3d` also writes `geometry.glb` (glTF 2.0, one node per volume) and `trajectories.json`
+(the tracks of the first events), for looking at a run. They are a subset of the simulation and not
+part of the OID: `hits.arrow` and its OID are the same with and without the flag. Formats, units and
+exactly what is kept: docs/EXPORT3D.md. `--export-events N` (default 10, at most 100) and
+`--export-min-energy GeV` (default 0.001) tune it; there is also a cap of 500 tracks per event, and
+each event says how many tracks were dropped.
+
+```sh
+./build/vikshep-sim run --spec docs/examples/tracker_muon.json --out tracker_run --export-3d
+# geometry.glb is about 97 kB for this tracker (too large to keep in docs/examples), so the example
+# outputs are made with the command above instead of being checked in.
+python3 -m http.server 8000          # in a folder that contains tracker_run and a copy of, or a path to, scripts/
+# then open  http://localhost:8000/scripts/view_3d.html?run=/tracker_run
+```
+
+`scripts/view_3d.html` is a local page (three.js 0.160.0 from the jsDelivr CDN) with orbit controls,
+an event selector and volume toggles; run `python3 -m http.server` from the directory that holds both
+the repository's `scripts/` folder and the run folder (the repository root works if the run folder is
+inside it), or pick the two files with the page's file choosers. It is only for looking; it is not the
+Studio viewer.
 
 ## Plotting a run
 
