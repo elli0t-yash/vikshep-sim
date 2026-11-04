@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <memory>
 #include <fstream>
 #include <system_error>
 #include <vector>
@@ -101,10 +102,24 @@ PipelineResult run_to_folder(const json& user_spec, const std::string& out_dir,
   const std::vector<std::string> volumes = spec.at("sensitive").get<std::vector<std::string>>();
   HitsWriter writer((temp / "hits.arrow").string(), volumes, options.batch_rows);
 
+  // The 3-D export, if asked for: trajectories.json is written event by event from the reorder
+  // buffer's output, so it is in event_id order whatever the thread count.
+  std::unique_ptr<TrajectoryWriter> trajectories;
+  std::string spec_oid;
+  if (options.export3d.enabled) {
+    spec_oid = spec_oid_of(spec);
+    trajectories = std::make_unique<TrajectoryWriter>((temp / kTrajectoriesFileName).string(), spec_oid,
+                                                      options.export3d);
+  }
+
   PipelineResult result;
   std::uint64_t completed = 0;
   const EventConsumer consumer = [&](EventHits&& event) {
     ++completed;
+    if (trajectories && event.trajectories) {
+      trajectories->add_event(event.event_id, *event.trajectories);
+      ++result.export_events;
+    }
     if (event.hits.empty()) {
       ++result.events_without_hits;
     }
@@ -126,12 +141,17 @@ PipelineResult run_to_folder(const json& user_spec, const std::string& out_dir,
   if (options.on_progress) {
     options.on_progress(0, total);
   }
-  result.table = run_dev_simulation(spec, options.threads, reporting_consumer, nullptr, options.cancel);
+  result.table = run_dev_simulation(spec, options.threads, reporting_consumer, nullptr, options.cancel,
+                                    options.export3d);
   if (options.cancel && options.cancel()) {
     throw OutputError("CANCELLED", "the run was cancelled");  // the guard removes the temporary folder
   }
   result.hits_file = writer.finish();
   result.oid = result.hits_file.oid;
+  if (options.export3d.enabled) {
+    result.exports.push_back(write_geometry_glb((temp / kGeometryFileName).string(), spec));
+    result.exports.push_back(trajectories->finish());
+  }
 
   const auto finished = std::chrono::steady_clock::now();
   result.wall_time_s = std::chrono::duration<double>(finished - started).count();
@@ -143,6 +163,17 @@ PipelineResult run_to_folder(const json& user_spec, const std::string& out_dir,
   const auto required = required_data_sets(result.table.physics_list);
   provenance.data_sets = describe_data_sets(required);
   provenance.geant4_conda = describe_geant4_package(required);
+  json exports_json = json::array();
+  for (const ExportedFile& f : result.exports) {
+    exports_json.push_back(exported_file_json(f));
+  }
+  if (options.export3d.enabled) {
+    provenance.export_3d = {{"events", result.export_events},
+                            {"files", exports_json},
+                            {"format_version", kExportFormatVersion},
+                            {"max_tracks_per_event", kExportMaxTracksPerEvent},
+                            {"min_energy_GeV", options.export3d.min_energy_gev}};
+  }
   write_text_file(temp / "provenance.json", to_file_text(make_provenance(spec, provenance)));
 
   RunSummaryFacts summary;
@@ -156,6 +187,9 @@ PipelineResult run_to_folder(const json& user_spec, const std::string& out_dir,
   summary.hits_file_bytes = result.hits_file.bytes;
   summary.threads = options.threads;
   summary.wall_time_s = result.wall_time_s;
+  if (options.export3d.enabled) {
+    summary.exports = exports_json;
+  }
   write_text_file(temp / "run_summary.json", to_file_text(make_run_summary(summary)));
 
   // A cancellation that came during the last steps still counts: nothing is in place yet.

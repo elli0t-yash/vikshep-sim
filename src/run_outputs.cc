@@ -50,12 +50,15 @@ json make_provenance(const json& resolved_spec, const ProvenanceFacts& facts)
   j["spec_version"] = resolved_spec.at("spec_version");
   j["tool_version"] = VIKSHEP_SIM_VERSION;
   j["writer_scheme"] = kWriterScheme;
+  if (!facts.export_3d.is_null()) {
+    j["export_3d"] = facts.export_3d;
+  }
   return j;
 }
 
 json make_run_summary(const RunSummaryFacts& f)
 {
-  return {
+  json summary = {
       {"contract_version", kContractVersion},
       {"events_completed", f.events_completed},
       {"events_requested", f.events_requested},
@@ -69,6 +72,10 @@ json make_run_summary(const RunSummaryFacts& f)
       {"threads", f.threads},
       {"wall_time_s", f.wall_time_s},
   };
+  if (!f.exports.is_null()) {
+    summary["exports"] = f.exports;
+  }
+  return summary;
 }
 
 std::string to_file_text(const json& document)

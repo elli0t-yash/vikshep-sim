@@ -3,6 +3,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <vector>
 #include <cstdint>
 
 #include <nlohmann/json.hpp>
@@ -31,7 +32,20 @@ class Emitter {
   {
     emit({{"done", done}, {"event", "progress"}, {"total", total}});
   }
-  void done(const std::string& oid) { emit({{"event", "done"}, {"oid", oid}}); }
+  // exports: the exported files with --export-3d (docs/SIDECAR.md, section 2.1); the key is
+  // absent without it.
+  void done(const std::string& oid, const std::vector<ExportedFile>& exports)
+  {
+    json line = {{"event", "done"}, {"oid", oid}};
+    if (!exports.empty()) {
+      json files = json::array();
+      for (const ExportedFile& f : exports) {
+        files.push_back({{"bytes", f.bytes}, {"file", f.name}});
+      }
+      line["exports"] = files;
+    }
+    emit(line);
+  }
   void error(const json& line) { emit(line); }
 
  private:
@@ -44,7 +58,8 @@ class Emitter {
   bool enabled_;
 };
 
-int run_run(const std::string& spec_path, const std::string& out_dir, int threads, bool jsonl)
+int run_run(const std::string& spec_path, const std::string& out_dir, int threads, bool jsonl,
+            const ExportOptions& export3d)
 {
   // First of all: take stdout for the channel, so nothing else can reach it.
   StdoutChannel::capture();
@@ -65,6 +80,7 @@ int run_run(const std::string& spec_path, const std::string& out_dir, int thread
     ProgressThrottle throttle(static_cast<std::uint64_t>(load.spec.at("events").get<std::int64_t>()));
     PipelineOptions options;
     options.threads = threads;
+    options.export3d = export3d;
     options.cancel = [] { return cancellation::requested(); };
     options.on_progress = [&](std::uint64_t done, std::uint64_t total) {
       if (throttle.should_emit(done)) {
@@ -74,7 +90,7 @@ int run_run(const std::string& spec_path, const std::string& out_dir, int thread
     const PipelineResult result = run_to_folder(load.spec, out_dir, options);
 
     // 3. The folder is in place: now, and only now, the done line.
-    emitter.done(result.oid);
+    emitter.done(result.oid, result.exports);
     return kExitOk;
   }
   catch (...) {
@@ -94,6 +110,7 @@ void register_run(CLI::App& app, int& exit_code)
   auto out = std::make_shared<std::string>();
   auto threads = std::make_shared<int>(1);
   auto progress = std::make_shared<std::string>("none");
+  auto export3d = std::make_shared<ExportOptions>();
   sub->add_option("--spec", *spec, "Path to the JSON spec")->required();
   sub->add_option("--out", *out,
                   "Output folder to create. It must not exist, its parent must; it is written "
@@ -103,8 +120,20 @@ void register_run(CLI::App& app, int& exit_code)
       ->check(CLI::PositiveNumber);
   sub->add_option("--progress", *progress, "'jsonl': progress and result as JSON lines on stdout; 'none' (default): stdout stays empty")
       ->check(CLI::IsMember({"jsonl", "none"}));
+  auto export_flag = sub->add_flag("--export-3d", export3d->enabled,
+                                   "Also write geometry.glb and trajectories.json (docs/EXPORT3D.md): for viewing, a subset of "
+                                   "the run, not part of the OID. hits.arrow and its OID are unchanged");
+  sub->add_option("--export-events", export3d->events,
+                  "With --export-3d: tracks of the first N events (1 to 100, default 10)")
+      ->check(CLI::Range(1, kExportEventsMax))
+      ->needs(export_flag);
+  sub->add_option("--export-min-energy", export3d->min_energy_gev,
+                  "With --export-3d: keep secondaries of at least this kinetic energy in GeV (0 to 10000, default 0.001)")
+      ->check(CLI::Range(0.0, kExportMinEnergyMaxGeV))
+      ->needs(export_flag);
   sub->footer(
-      "Output: hits.arrow, provenance.json, run_summary.json in --out.\n"
+      "Output: hits.arrow, provenance.json, run_summary.json in --out (and, with --export-3d,\n"
+      "geometry.glb and trajectories.json).\n"
       "With --progress jsonl stdout carries only JSON lines (progress, then done with the OID, or one\n"
       "error line); everything else, including Geant4's output, goes to stderr.\n"
       "Exit codes: 0 ok; 1 simulation or internal error; 2 bad usage, invalid spec or --out exists;\n"
@@ -112,7 +141,7 @@ void register_run(CLI::App& app, int& exit_code)
       "Error codes: USAGE, SPEC_INVALID, SPEC_UNREADABLE, SPEC_NOT_JSON, SPEC_VERSION_UNSUPPORTED,\n"
       "OUTPUT_EXISTS, DATASETS_MISSING, GEOMETRY_ERROR, OUTPUT_NOT_WRITABLE, SIMULATION_FAILED,\n"
       "INTERNAL, CANCELLED.");
-  sub->callback([spec, out, threads, progress, &exit_code]() {
-    exit_code = run_run(*spec, *out, *threads, *progress == "jsonl");
+  sub->callback([spec, out, threads, progress, export3d, &exit_code]() {
+    exit_code = run_run(*spec, *out, *threads, *progress == "jsonl", *export3d);
   });
 }

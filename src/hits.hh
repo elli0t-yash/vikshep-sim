@@ -1,7 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <vector>
+
+#include "tracks.hh"
 
 // One row of hits.arrow (docs/HITS.md, section 2), in the units of that
 // document: mm, ns, MeV, MeV/c.
@@ -27,6 +30,9 @@ struct Hit {
 struct EventHits {
   std::uint64_t event_id = 0;
   std::vector<Hit> hits;
+  // Only with --export-3d, and only for the first events: the tracks to export
+  // (docs/EXPORT3D.md). Not written to hits.arrow and not part of the OID.
+  std::optional<EventTracks> trajectories;
 };
 
 // Names of the sensitive volumes of all templates, sorted bytewise (the order of the volume

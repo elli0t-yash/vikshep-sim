@@ -19,6 +19,9 @@ Failure classify_current_exception()
   catch (const GeometryError& e) {
     return {"GEOMETRY_ERROR", "the geometry cannot be built", e.what()};
   }
+  catch (const ExportError& e) {
+    return {"INTERNAL", std::string("3-D export failed: ") + e.what(), e.what()};
+  }
   catch (const IntegrityError& e) {
     return {"INTERNAL", "an internal check failed", e.what()};
   }

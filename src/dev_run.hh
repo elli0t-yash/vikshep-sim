@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 
 #include "calorimeter_geometry.hh"
+#include "export3d.hh"
 #include "hits.hh"
 
 // Runs the spec's geometry in Geant4 (layered_calorimeter, or tracker_barrel since spec 1.1) and
@@ -55,6 +56,11 @@ using AfterSeeding = std::function<void(std::uint64_t event_id)>;
 // were not simulated are not delivered, and run_dev_simulation() returns normally.
 using CancelCheck = std::function<bool()>;
 
+// export3d: with `enabled`, read-only tracking and stepping actions collect the tracks of the first
+// `events` events and attach them to those events' EventHits (`trajectories`, docs/EXPORT3D.md). The
+// simulation, the hits and their order are the same with and without it. Without it no such action
+// exists.
+//
 // resolved_spec: output of resolve_spec(). Nothing is written to stdout;
 // Geant4's own output goes to stderr. Hits are recorded in the volumes listed in
 // the spec's `sensitive` field and passed to consumer (if any). The energy table
@@ -62,4 +68,5 @@ using CancelCheck = std::function<bool()>;
 DevRunResult run_dev_simulation(const nlohmann::json& resolved_spec, int threads,
                                 const EventConsumer& consumer = nullptr,
                                 const AfterSeeding& after_seeding = nullptr,
-                                const CancelCheck& cancel = nullptr);
+                                const CancelCheck& cancel = nullptr,
+                                const ExportOptions& export3d = ExportOptions());

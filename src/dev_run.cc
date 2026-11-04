@@ -41,6 +41,8 @@
 #include "G4ThreeVector.hh"
 #include "G4UImanager.hh"
 #include "G4UserEventAction.hh"
+#include "G4UserSteppingAction.hh"
+#include "G4UserTrackingAction.hh"
 #include "G4VPhysicalVolume.hh"
 #include "G4VSensitiveDetector.hh"
 #include "G4VUserActionInitialization.hh"
@@ -399,14 +401,82 @@ class PrimaryGenerator : public G4VUserPrimaryGeneratorAction {
   AfterSeeding after_seeding_;
 };
 
+// The tracks of the event being processed by this thread, for the 3-D export (docs/EXPORT3D.md).
+// Only filled for the first events, and only when the export is on.
+struct TrackCollector {
+  bool active = false;
+  std::uint32_t total = 0;             // every track Geant4 created in the event
+  std::vector<TrackRecord> eligible;   // primaries and tracks at or above the minimum energy
+  long current = -1;                   // index in `eligible` of the track being tracked, or -1
+};
+
+TrackCollector& thread_tracks()
+{
+  static thread_local TrackCollector collector;
+  return collector;
+}
+
+// Read-only: looks at a track when it starts and when it ends, changes nothing.
+class ExportTrackingAction : public G4UserTrackingAction {
+ public:
+  explicit ExportTrackingAction(double min_energy_gev) : min_energy_gev_(min_energy_gev) {}
+
+  void PreUserTrackingAction(const G4Track* track) override
+  {
+    TrackCollector& c = thread_tracks();
+    if (!c.active) {
+      return;
+    }
+    ++c.total;
+    const double energy_gev = track->GetKineticEnergy() / GeV;
+    const bool primary = track->GetParentID() == 0;
+    if (!primary && !(energy_gev >= min_energy_gev_)) {
+      c.current = -1;
+      return;
+    }
+    TrackRecord record;
+    record.track_id = track->GetTrackID();
+    record.parent_id = track->GetParentID();
+    record.pdg = track->GetDefinition()->GetPDGEncoding();
+    record.charge = static_cast<std::int32_t>(std::lround(track->GetDefinition()->GetPDGCharge()));
+    record.kinetic_energy_start_gev = energy_gev;
+    const G4ThreeVector start = track->GetPosition();
+    record.points.push_back({start.x() / mm, start.y() / mm, start.z() / mm});
+    c.eligible.push_back(std::move(record));
+    c.current = static_cast<long>(c.eligible.size()) - 1;
+  }
+
+  void PostUserTrackingAction(const G4Track*) override { thread_tracks().current = -1; }
+
+ private:
+  double min_energy_gev_;
+};
+
+// Read-only: records where each step of a collected track ended.
+class ExportSteppingAction : public G4UserSteppingAction {
+ public:
+  void UserSteppingAction(const G4Step* step) override
+  {
+    TrackCollector& c = thread_tracks();
+    if (!c.active || c.current < 0) {
+      return;
+    }
+    const G4ThreeVector p = step->GetPostStepPoint()->GetPosition();
+    c.eligible[static_cast<std::size_t>(c.current)].points.push_back({p.x() / mm, p.y() / mm, p.z() / mm});
+  }
+};
+
 class EventAction : public G4UserEventAction {
  public:
-  explicit EventAction(SharedResults* shared) : shared_(shared) {}
+  EventAction(SharedResults* shared, const ExportOptions& export3d) : shared_(shared), export_(export3d) {}
 
-  void BeginOfEventAction(const G4Event*) override
+  void BeginOfEventAction(const G4Event* event) override
   {
     thread_event_buffer().assign(shared_->event_buffer_size, 0.0);
     thread_event_hits().clear();
+    TrackCollector& c = thread_tracks();
+    c = TrackCollector();
+    c.active = export_.enabled && event->GetEventID() < export_.events;
   }
 
   void EndOfEventAction(const G4Event* event) override
@@ -422,6 +492,11 @@ class EventAction : public G4UserEventAction {
     finished.event_id = static_cast<std::uint64_t>(event->GetEventID());
     finished.hits = std::move(thread_event_hits());
     thread_event_hits().clear();
+    TrackCollector& collected = thread_tracks();
+    if (collected.active) {
+      finished.trajectories = select_tracks(std::move(collected.eligible), collected.total);
+      collected = TrackCollector();
+    }
     try {
       shared_->ordered->submit(finished.event_id, std::move(finished));
     }
@@ -442,12 +517,14 @@ class EventAction : public G4UserEventAction {
 
  private:
   SharedResults* shared_;
+  ExportOptions export_;
 };
 
 class Actions : public G4VUserActionInitialization {
  public:
-  Actions(const GunConfig& gun, SharedResults* shared, const AfterSeeding& after_seeding)
-      : gun_(gun), shared_(shared), after_seeding_(after_seeding)
+  Actions(const GunConfig& gun, SharedResults* shared, const AfterSeeding& after_seeding,
+          const ExportOptions& export3d)
+      : gun_(gun), shared_(shared), after_seeding_(after_seeding), export_(export3d)
   {
   }
 
@@ -455,19 +532,26 @@ class Actions : public G4VUserActionInitialization {
   {
     install_exception_handler_on_this_thread();  // this is a worker thread
     SetUserAction(new PrimaryGenerator(gun_, shared_->spec_seed, after_seeding_));
-    SetUserAction(new EventAction(shared_));
+    SetUserAction(new EventAction(shared_, export_));
+    if (export_.enabled) {
+      // Only for the 3-D export, and read-only: without it these actions do not exist.
+      SetUserAction(new ExportTrackingAction(export_.min_energy_gev));
+      SetUserAction(new ExportSteppingAction());
+    }
   }
 
  private:
   GunConfig gun_;
   SharedResults* shared_;
   AfterSeeding after_seeding_;
+  ExportOptions export_;
 };
 
 }  // namespace
 
 DevRunResult run_dev_simulation(const json& spec, int threads, const EventConsumer& consumer,
-                                const AfterSeeding& after_seeding, const CancelCheck& cancel)
+                                const AfterSeeding& after_seeding, const CancelCheck& cancel,
+                                const ExportOptions& export3d)
 {
   if (threads < 1) {
     throw std::invalid_argument("threads must be at least 1");
@@ -583,7 +667,7 @@ DevRunResult run_dev_simulation(const json& spec, int threads, const EventConsum
     run_manager->SetUserInitialization(new DetectorConstruction(spec, geometry, record_hits, field));
   }
   run_manager->SetUserInitialization(physics);
-  run_manager->SetUserInitialization(new Actions(gun, &shared, after_seeding));
+  run_manager->SetUserInitialization(new Actions(gun, &shared, after_seeding, export3d));
 
   // Geant4's master engine still seeds Geant4's own per-event seeds, which
   // EventAction replaces. Seed it from the spec anyway so nothing depends on

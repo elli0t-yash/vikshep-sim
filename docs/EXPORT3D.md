@@ -67,8 +67,8 @@ no library; it uses only the core of glTF 2.0 and no extension.
 The JSON is compact (no whitespace) and its keys are sorted by their UTF-8
 bytes. A number is written in the shortest decimal form that reads back to the
 same float64 (SPEC.md, section 4); a value that is stored as float32 (the `min`
-and `max` of the accessors) is first converted to float64, so it appears with
-the digits of that double. There is exactly one buffer, the BIN chunk, with no
+and `max` of the accessors, the `translation` of a node) is written in the
+shortest decimal form that reads back to the same float32. There is exactly one buffer, the BIN chunk, with no
 `uri`.
 
 ### 2.2 What is in it
