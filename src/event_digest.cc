@@ -90,8 +90,8 @@ nlohmann::json digest_to_json(const EventDigest& d, const std::vector<std::strin
   nlohmann::json counts = nlohmann::json::object();
   nlohmann::json energies = nlohmann::json::object();
   for (const std::string& name : volumes) {
-    for (std::size_t i = 0; i < 2; ++i) {
-      if (name == kSlabNames[i]) {
+    for (std::size_t i = 0; i < kVolumeCount; ++i) {
+      if (name == kVolumeNames[i]) {
         counts[name] = d.hits_by_volume[i];
         energies[name] = d.edep_by_volume_mev[i];
       }

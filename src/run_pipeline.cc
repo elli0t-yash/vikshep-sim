@@ -147,6 +147,7 @@ PipelineResult run_to_folder(const json& user_spec, const std::string& out_dir,
 
   RunSummaryFacts summary;
   summary.oid = result.oid;
+  summary.spec_version = spec.at("spec_version").get<std::string>();
   summary.events_requested = static_cast<std::uint64_t>(result.table.events);
   summary.events_completed = completed;
   summary.events_with_hits = result.events_with_hits;

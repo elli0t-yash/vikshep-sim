@@ -27,6 +27,7 @@ nlohmann::json make_provenance(const nlohmann::json& resolved_spec, const Proven
 
 struct RunSummaryFacts {
   std::string oid;
+  std::string spec_version;  // the spec's own version, as written in the spec file
   std::uint64_t events_requested = 0;
   std::uint64_t events_completed = 0;
   std::uint64_t events_with_hits = 0;

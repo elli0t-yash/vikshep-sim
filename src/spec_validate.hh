@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 
 #include "calorimeter_geometry.hh"
+#include "tracker_geometry.hh"
 
 // One problem found in a spec. The pointer is an RFC 6901 JSON Pointer to the
 // offending field ("" is the root object).
@@ -38,6 +39,13 @@ const std::vector<std::string>& allowed_particles();
 
 // The geometry numbers of a spec, if all of them are present and valid.
 bool read_geometry(const nlohmann::json& spec, CalorimeterGeometry& out);
+
+// The tracker_barrel layers of a spec, if every layer has valid numbers (ordering of the
+// layers is not checked here). The material is filled in with its default when absent.
+bool read_tracker_geometry(const nlohmann::json& spec, TrackerGeometry& out);
+
+// True if spec_version is one this build accepts.
+bool is_supported_spec_version(const std::string& version);
 
 // Checks a parsed spec against docs/SPEC.md and reports every problem.
 ValidationResult validate_spec(const nlohmann::json& spec, const Catalogue& catalogue);

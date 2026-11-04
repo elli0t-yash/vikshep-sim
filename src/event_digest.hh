@@ -31,8 +31,8 @@ struct EventDigest {
   std::uint64_t hits = 0;
   double edep_sum_mev = 0.0;
   std::uint64_t hash = 0;
-  std::array<std::uint64_t, 2> hits_by_volume{};
-  std::array<double, 2> edep_by_volume_mev{};
+  std::array<std::uint64_t, kVolumeCount> hits_by_volume{};
+  std::array<double, kVolumeCount> edep_by_volume_mev{};
 };
 
 EventDigest make_digest(const EventHits& event);

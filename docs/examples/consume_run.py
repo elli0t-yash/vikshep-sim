@@ -33,6 +33,16 @@ import sys
 BAR_WIDTH = 40
 
 
+def default_executable():
+    """The binary to run: VIKSHEP_SIM_BIN, or the older VIKSHEP_SIM, or build/vikshep-sim next to
+    this script's repository (this file is docs/examples/consume_run.py), so the default does not
+    depend on the directory the script is started from."""
+    for variable in ("VIKSHEP_SIM_BIN", "VIKSHEP_SIM"):
+        if os.environ.get(variable):
+            return os.environ[variable]
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, os.pardir, "build", "vikshep-sim")
+
+
 def draw_bar(done, total, stream):
     filled = BAR_WIDTH * done // total if total else BAR_WIDTH
     bar = "#" * filled + "-" * (BAR_WIDTH - filled)
@@ -49,7 +59,9 @@ def main():
     parser.add_argument("--spec", required=True)
     parser.add_argument("--out", required=True, help="output folder; must not exist")
     parser.add_argument("--threads", type=int, default=1)
-    parser.add_argument("--exe", default=os.environ.get("VIKSHEP_SIM", "build/vikshep-sim"))
+    parser.add_argument("--exe", default=default_executable(),
+                        help="the vikshep-sim binary (default: $VIKSHEP_SIM_BIN, else $VIKSHEP_SIM, else "
+                             "build/vikshep-sim in the repository this script is in, whatever the current directory)")
     parser.add_argument("--quiet", action="store_true", help="hide the program's stderr")
     args = parser.parse_args()
 

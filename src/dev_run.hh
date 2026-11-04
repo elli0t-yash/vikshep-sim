@@ -10,12 +10,18 @@
 #include "calorimeter_geometry.hh"
 #include "hits.hh"
 
-// EXPERIMENTAL. Runs the layered calorimeter in Geant4 and keeps the energy
-// deposited per event, slab type and layer. Used by `vikshep-sim dev-run`,
-// which is outside the sidecar contract and will be replaced by `run`.
+// Runs the spec's geometry in Geant4 (layered_calorimeter, or tracker_barrel since spec 1.1) and
+// keeps the energy deposited per event, slab type and layer. Used by `run` (through
+// run_to_folder) and by the experimental `vikshep-sim dev-run`, which is outside the sidecar
+// contract.
 
 struct DevRunResult {
+  // The calorimeter's numbers; all zero for a tracker_barrel spec.
   CalorimeterGeometry geometry;
+  // Shape of the energy table: 2 slab types and `geometry.layers` layers for the calorimeter,
+  // 1 "slab" (the tracker layer volume) and one entry per layer for the tracker.
+  int slabs = 0;
+  int layer_count = 0;
   int events = 0;
   int threads = 0;
   double incident_energy_mev = 0.0;
@@ -23,13 +29,13 @@ struct DevRunResult {
   std::string physics_list;
   std::string run_manager_type;  // see dev_run.cc
   double default_cut_mm = 0.0;   // default production cut in effect
-  // Energy deposited, MeV: index (event * 2 + slab) * layers + layer, with
-  // slab 0 = absorber and 1 = active.
+  // Energy deposited, MeV: index (event * slabs + slab) * layer_count + layer. For the
+  // calorimeter slab 0 = absorber and 1 = active.
   std::vector<double> edep_mev;
 
   double edep(int event, int slab, int layer) const
   {
-    return edep_mev[(static_cast<std::size_t>(event) * 2 + slab) * geometry.layers + layer];
+    return edep_mev[(static_cast<std::size_t>(event) * slabs + slab) * layer_count + layer];
   }
 };
 

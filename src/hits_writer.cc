@@ -102,7 +102,7 @@ struct HitsWriter::Impl {
   std::string path;
   std::vector<std::string> volumes;
   std::size_t batch_rows = 0;
-  int dictionary_index_of_slab[2] = {-1, -1};  // slab type -> dictionary index, -1 if absent
+  int dictionary_index_of_slab[kVolumeCount] = {-1, -1, -1};  // kVolumeNames index -> dictionary index, -1 if absent
 
   Sha3_256 hash;
   Tee tee;
@@ -214,7 +214,7 @@ struct HitsWriter::Impl {
 
   void append_hit(std::uint64_t event_id, const Hit& h)
   {
-    if (h.volume < 0 || h.volume > 1 || dictionary_index_of_slab[h.volume] < 0) {
+    if (h.volume < 0 || h.volume >= kVolumeCount || dictionary_index_of_slab[h.volume] < 0) {
       throw std::invalid_argument("hits.arrow: a hit is in a volume that is not in the dictionary");
     }
     if (!batch_open) {
@@ -263,13 +263,14 @@ HitsWriter::HitsWriter(const std::string& path, const std::vector<std::string>& 
     if (i > 0 && !(volumes[i - 1] < volumes[i])) {
       throw std::invalid_argument("hits.arrow: volumes must be sorted and without repeats");
     }
-    if (volumes[i] == "absorber") {
-      m.dictionary_index_of_slab[0] = static_cast<int>(i);
+    bool known = false;
+    for (int v = 0; v < kVolumeCount; ++v) {
+      if (volumes[i] == kVolumeNames[v]) {
+        m.dictionary_index_of_slab[v] = static_cast<int>(i);
+        known = true;
+      }
     }
-    else if (volumes[i] == "active") {
-      m.dictionary_index_of_slab[1] = static_cast<int>(i);
-    }
-    else {
+    if (!known) {
       throw std::invalid_argument("hits.arrow: unknown volume " + volumes[i]);
     }
   }

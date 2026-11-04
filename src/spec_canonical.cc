@@ -10,6 +10,8 @@
 
 #include "calorimeter_geometry.hh"
 #include "spec_validate.hh"
+#include "tracker_geometry.hh"
+#include "versions.hh"
 
 // Canonical form: RFC 8785 (JSON Canonicalization Scheme) as far as the
 // documented spec needs it. Differences from RFC 8785:
@@ -165,39 +167,80 @@ json resolve_slab(const json& slab)
   return {{"material", slab.at("material")}, {"thickness_mm", as_double(slab.at("thickness_mm"))}};
 }
 
+json resolve_tracker_layer(const json& layer)
+{
+  return {{"half_length_mm", as_double(layer.at("half_length_mm"))},
+          {"material", layer.contains("material") ? layer.at("material") : json(kTrackerDefaultMaterial)},
+          {"radius_mm", as_double(layer.at("radius_mm"))},
+          {"thickness_mm", as_double(layer.at("thickness_mm"))}};
+}
+
 }  // namespace
 
 json resolve_spec(const json& spec)
 {
-  CalorimeterGeometry geometry_numbers;
-  if (!read_geometry(spec, geometry_numbers)) {
-    throw std::invalid_argument("resolve_spec: spec is not valid");
-  }
+  const bool tracker =
+      spec.contains("template") && spec.at("template") == kTemplateTrackerBarrel;
+  const bool v11 = spec.contains("spec_version") && spec.at("spec_version") == kSpecVersion11;
+
   const json& geometry = spec.at("geometry");
   const json& gun = spec.at("gun");
 
   json out;
   out["spec_version"] = spec.at("spec_version");
   out["template"] = spec.at("template");
-  out["geometry"] = {
-      {"layers", as_integer(geometry.at("layers"))},
-      {"absorber", resolve_slab(geometry.at("absorber"))},
-      {"active", resolve_slab(geometry.at("active"))},
-      {"transverse_mm", as_double(geometry.at("transverse_mm"))},
-  };
+
+  json default_position;
+  json default_direction;
+  if (tracker) {
+    TrackerGeometry tracker_numbers;
+    if (!read_tracker_geometry(spec, tracker_numbers)) {
+      throw std::invalid_argument("resolve_spec: spec is not valid");
+    }
+    json layers = json::array();
+    for (const json& layer : geometry.at("layers")) {
+      layers.push_back(resolve_tracker_layer(layer));  // the order is the layer number
+    }
+    out["geometry"] = {{"layers", layers}};
+    default_position = json::array({0.0, 0.0, 0.0});
+    default_direction = json::array({1.0, 0.0, 0.0});
+  }
+  else {
+    CalorimeterGeometry geometry_numbers;
+    if (!read_geometry(spec, geometry_numbers)) {
+      throw std::invalid_argument("resolve_spec: spec is not valid");
+    }
+    out["geometry"] = {
+        {"layers", as_integer(geometry.at("layers"))},
+        {"absorber", resolve_slab(geometry.at("absorber"))},
+        {"active", resolve_slab(geometry.at("active"))},
+        {"transverse_mm", as_double(geometry.at("transverse_mm"))},
+    };
+    default_position = json::array({0.0, 0.0, geometry_numbers.default_gun_z_mm()});
+    default_direction = json::array({0.0, 0.0, 1.0});
+  }
+
   out["gun"] = {
       {"particle", gun.at("particle")},
       {"energy_GeV", as_double(gun.at("energy_GeV"))},
-      {"position_mm", gun.contains("position_mm") ? as_vector3(gun.at("position_mm"))
-                                                  : json::array({0.0, 0.0, geometry_numbers.default_gun_z_mm()})},
+      {"position_mm", gun.contains("position_mm") ? as_vector3(gun.at("position_mm")) : default_position},
       {"direction", gun.contains("direction") ? as_normalised_vector3(gun.at("direction"))
-                                              : json::array({0.0, 0.0, 1.0})},
+                                              : default_direction},
   };
+  if (v11) {
+    // Written for every 1.1 spec, zero or not. A 1.0 spec has no field key, so its canonical
+    // form (and spec_oid) is what it was before 1.1 existed.
+    json b = json::array({0.0, 0.0, 0.0});
+    if (spec.contains("field") && spec.at("field").contains("B_T")) {
+      b = as_vector3(spec.at("field").at("B_T"));
+    }
+    out["field"] = {{"B_T", b}};
+  }
   out["physics"] = {{"list", spec.contains("physics") && spec.at("physics").contains("list")
                                  ? spec.at("physics").at("list")
                                  : json("FTFP_BERT")}};
 
-  std::vector<std::string> sensitive = {"active"};
+  std::vector<std::string> sensitive = {tracker ? std::string(kTrackerVolumeName) : std::string("active")};
   if (spec.contains("sensitive")) {
     sensitive = spec.at("sensitive").get<std::vector<std::string>>();
   }

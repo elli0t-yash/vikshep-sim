@@ -28,7 +28,7 @@ class HitsWriter {
   static constexpr std::size_t kDefaultBatchRows = 65536;  // docs/HITS.md, section 1.1
 
   // volumes: the names of the sensitive volumes, sorted bytewise, without repeats
-  // (the dictionary, docs/HITS.md section 1.2). Each must be "absorber" or "active".
+  // (the dictionary, docs/HITS.md section 1.2). Each must be one of kVolumeNames (hits.hh).
   // batch_rows: only tests use another value than the default.
   // Throws std::runtime_error if the file cannot be created.
   HitsWriter(const std::string& path, const std::vector<std::string>& volumes,

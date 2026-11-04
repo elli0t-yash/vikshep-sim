@@ -13,7 +13,15 @@
 #include <utility>
 #include <vector>
 
+#include "G4AutoDelete.hh"
 #include "G4Box.hh"
+#include "G4ChordFinder.hh"
+#include "G4ExactHelixStepper.hh"
+#include "G4FieldManager.hh"
+#include "G4Mag_UsualEqRhs.hh"
+#include "G4UniformMagField.hh"
+#include "G4Tubs.hh"
+#include "G4TransportationManager.hh"
 #include "G4EmParameters.hh"
 #include "G4Exception.hh"
 #include "G4Event.hh"
@@ -44,6 +52,8 @@
 #include "geant4_errors.hh"
 #include "reorder_buffer.hh"
 #include "stderr_session.hh"
+#include "tracker_geometry.hh"
+#include "versions.hh"
 
 using nlohmann::json;
 
@@ -68,7 +78,7 @@ constexpr const char* kRunManagerTypeName = "MT (G4MTRunManager)";
 
 // Shared by all threads. Each event writes only its own slice.
 struct SharedResults {
-  CalorimeterGeometry geometry;
+  std::size_t event_buffer_size = 0;  // slabs * layers: size of the energy table of one event
   std::uint64_t spec_seed = 0;
   std::vector<double>* edep_mev = nullptr;
   // Completed events go here and come out in event_id order.
@@ -92,12 +102,57 @@ std::vector<Hit>& thread_event_hits()
   return hits;
 }
 
+// The uniform magnetic field of the spec (docs/SPEC.md, 2.6), in tesla, in the global frame.
+struct FieldConfig {
+  bool enabled = false;  // false when the vector is zero: then no Geant4 field object is created
+  double bx_t = 0.0;
+  double by_t = 0.0;
+  double bz_t = 0.0;
+};
+
+FieldConfig field_config_of(const json& spec)
+{
+  FieldConfig f;
+  if (!spec.contains("field")) {
+    return f;  // a spec written as 1.0 has no field block
+  }
+  const json& b = spec.at("field").at("B_T");
+  f.bx_t = b[0].get<double>();
+  f.by_t = b[1].get<double>();
+  f.bz_t = b[2].get<double>();
+  f.enabled = f.bx_t != 0.0 || f.by_t != 0.0 || f.bz_t != 0.0;
+  return f;
+}
+
+// Installs the field for the thread that calls it (Geant4 field managers are thread-local, so
+// this runs from ConstructSDandField, which every worker thread calls). Nothing at all is
+// created for a zero field. The stepper is the exact helix of a charged particle in a uniform
+// field, so the integrator adds no error of its own (docs/SPEC.md, 2.6); the accuracy
+// parameters stay at Geant4's defaults.
+void install_uniform_field(const FieldConfig& config)
+{
+  if (!config.enabled) {
+    return;
+  }
+  auto* field = new G4UniformMagField(G4ThreeVector(config.bx_t, config.by_t, config.bz_t) * tesla);
+  G4AutoDelete::Register(field);
+  auto* equation = new G4Mag_UsualEqRhs(field);
+  G4AutoDelete::Register(equation);
+  auto* stepper = new G4ExactHelixStepper(equation);
+  auto* chord_finder = new G4ChordFinder(field, 1e-2 * mm, stepper);  // 0.01 mm: Geant4's default minimum step
+  G4AutoDelete::Register(chord_finder);
+  G4FieldManager* manager = G4TransportationManager::GetTransportationManager()->GetFieldManager();
+  manager->SetDetectorField(field);
+  manager->SetChordFinder(chord_finder);
+}
+
 class DetectorConstruction : public G4VUserDetectorConstruction {
  public:
   DetectorConstruction(const json& spec, const CalorimeterGeometry& geometry,
-                       const std::array<bool, 2>& record_hits)
+                       const std::array<bool, 2>& record_hits, const FieldConfig& field)
       : geometry_(geometry),
         record_hits_(record_hits),
+        field_(field),
         absorber_material_(spec.at("geometry").at("absorber").at("material").get<std::string>()),
         active_material_(spec.at("geometry").at("active").at("material").get<std::string>())
   {
@@ -152,6 +207,7 @@ class DetectorConstruction : public G4VUserDetectorConstruction {
  private:
   CalorimeterGeometry geometry_;
   std::array<bool, 2> record_hits_;  // per slab type: is it a sensitive volume of the spec
+  FieldConfig field_;
   std::string absorber_material_;
   std::string active_material_;
   G4LogicalVolume* absorber_lv_ = nullptr;
@@ -165,8 +221,13 @@ class DetectorConstruction : public G4VUserDetectorConstruction {
 // volume with edep > 0).
 class SlabDetector : public G4VSensitiveDetector {
  public:
-  SlabDetector(const std::string& name, int slab, int layers, bool record_hits)
-      : G4VSensitiveDetector(name), slab_(slab), layers_(layers), record_hits_(record_hits)
+  // slab: row of the energy table; volume: index into kVolumeNames of the hits it records.
+  SlabDetector(const std::string& name, int slab, int volume, int layers, bool record_hits)
+      : G4VSensitiveDetector(name),
+        slab_(slab),
+        volume_(volume),
+        layers_(layers),
+        record_hits_(record_hits)
   {
   }
 
@@ -185,9 +246,9 @@ class SlabDetector : public G4VSensitiveDetector {
       const G4ThreeVector momentum = pre->GetMomentum();
       const G4Track* track = step->GetTrack();
       ::Hit hit;  // (G4VSensitiveDetector has a member function called Hit)
-      hit.volume = slab_;
+      hit.volume = volume_;
       hit.copy_no = copy_no;
-      hit.layer = copy_no;  // layered template: the layer index is the copy number
+      hit.layer = copy_no;  // both templates: the layer index is the copy number
       hit.x_mm = middle.x() / mm;
       hit.y_mm = middle.y() / mm;
       hit.z_mm = middle.z() / mm;
@@ -207,6 +268,7 @@ class SlabDetector : public G4VSensitiveDetector {
 
  private:
   int slab_;
+  int volume_;
   int layers_;
   bool record_hits_;
 };
@@ -214,13 +276,81 @@ class SlabDetector : public G4VSensitiveDetector {
 void DetectorConstruction::ConstructSDandField()
 {
   auto* manager = G4SDManager::GetSDMpointer();
-  auto* absorber_sd = new SlabDetector("absorber_sd", 0, geometry_.layers, record_hits_[0]);
-  auto* active_sd = new SlabDetector("active_sd", 1, geometry_.layers, record_hits_[1]);
+  auto* absorber_sd =
+      new SlabDetector("absorber_sd", 0, kVolumeAbsorber, geometry_.layers, record_hits_[0]);
+  auto* active_sd = new SlabDetector("active_sd", 1, kVolumeActive, geometry_.layers, record_hits_[1]);
   manager->AddNewDetector(absorber_sd);
   manager->AddNewDetector(active_sd);
   SetSensitiveDetector("absorber", absorber_sd);
   SetSensitiveDetector("active", active_sd);
+  install_uniform_field(field_);
 }
+
+// The tracker_barrel template (docs/SPEC.md, 2.5): concentric silicon tubes around the z axis, in
+// a box of vacuum. Every layer is a sensitive volume named "tracker_layer", copy number = layer
+// index (0 = innermost).
+class TrackerConstruction : public G4VUserDetectorConstruction {
+ public:
+  TrackerConstruction(const TrackerGeometry& geometry, const FieldConfig& field, bool record_hits)
+      : geometry_(geometry), field_(field), record_hits_(record_hits)
+  {
+  }
+
+  G4VPhysicalVolume* Construct() override
+  {
+    if (test_fatal_wanted("construct")) {
+      G4Exception("vikshep-test", "TEST0001", FatalException, "deliberate failure while building the geometry");
+    }
+    auto* nist = G4NistManager::Instance();
+    G4Material* vacuum = nist->FindOrBuildMaterial("G4_Galactic");
+    if (vacuum == nullptr) {
+      throw GeometryError("a material of the spec is unknown to Geant4");
+    }
+    auto* world_solid = new G4Box("world", 0.5 * geometry_.world_transverse_mm() * mm,
+                                  0.5 * geometry_.world_transverse_mm() * mm,
+                                  0.5 * geometry_.world_length_mm() * mm);
+    auto* world_lv = new G4LogicalVolume(world_solid, vacuum, "world");
+    auto* world_pv = new G4PVPlacement(nullptr, G4ThreeVector(), world_lv, "world", nullptr, false,
+                                       0, false);
+    for (std::size_t i = 0; i < geometry_.layers.size(); ++i) {
+      const TrackerLayer& layer = geometry_.layers[i];
+      G4Material* material = nist->FindOrBuildMaterial(layer.material);
+      if (material == nullptr) {
+        throw GeometryError("a material of the spec is unknown to Geant4");
+      }
+      // Logical volumes need distinct names for the name-based sensitive detector assignment
+      // below; the physical volume keeps the one documented name (the one hits.arrow shows).
+      const std::string lv_name = logical_name(i);
+      auto* tube = new G4Tubs(lv_name, layer.inner_radius_mm() * mm, layer.outer_radius_mm() * mm,
+                              layer.half_length_mm * mm, 0.0, CLHEP::twopi);
+      auto* lv = new G4LogicalVolume(tube, material, lv_name);
+      new G4PVPlacement(nullptr, G4ThreeVector(), lv, kTrackerVolumeName, world_lv, false,
+                        static_cast<int>(i), false);
+    }
+    return world_pv;
+  }
+
+  void ConstructSDandField() override
+  {
+    auto* detector = new SlabDetector("tracker_sd", 0, kVolumeTrackerLayer,
+                                      static_cast<int>(geometry_.layers.size()), record_hits_);
+    G4SDManager::GetSDMpointer()->AddNewDetector(detector);
+    for (std::size_t i = 0; i < geometry_.layers.size(); ++i) {
+      SetSensitiveDetector(logical_name(i), detector);
+    }
+    install_uniform_field(field_);
+  }
+
+ private:
+  static std::string logical_name(std::size_t layer)
+  {
+    return std::string(kTrackerVolumeName) + "_" + std::to_string(layer);
+  }
+
+  TrackerGeometry geometry_;
+  FieldConfig field_;
+  bool record_hits_;
+};
 
 struct GunConfig {
   std::string particle;
@@ -275,13 +405,13 @@ class EventAction : public G4UserEventAction {
 
   void BeginOfEventAction(const G4Event*) override
   {
-    thread_event_buffer().assign(2 * static_cast<std::size_t>(shared_->geometry.layers), 0.0);
+    thread_event_buffer().assign(shared_->event_buffer_size, 0.0);
     thread_event_hits().clear();
   }
 
   void EndOfEventAction(const G4Event* event) override
   {
-    const std::size_t size = 2 * static_cast<std::size_t>(shared_->geometry.layers);
+    const std::size_t size = shared_->event_buffer_size;
     const std::vector<double>& buffer = thread_event_buffer();
     std::copy(buffer.begin(), buffer.end(),
               shared_->edep_mev->begin() + static_cast<std::ptrdiff_t>(event->GetEventID() * size));
@@ -343,14 +473,28 @@ DevRunResult run_dev_simulation(const json& spec, int threads, const EventConsum
     throw std::invalid_argument("threads must be at least 1");
   }
 
+  const bool tracker = spec.at("template").get<std::string>() == kTemplateTrackerBarrel;
   CalorimeterGeometry geometry;
-  {
+  TrackerGeometry tracker_geometry;
+  if (tracker) {
+    for (const json& l : spec.at("geometry").at("layers")) {
+      TrackerLayer layer;
+      layer.radius_mm = l.at("radius_mm").get<double>();
+      layer.thickness_mm = l.at("thickness_mm").get<double>();
+      layer.half_length_mm = l.at("half_length_mm").get<double>();
+      layer.material = l.at("material").get<std::string>();
+      tracker_geometry.layers.push_back(layer);
+    }
+  }
+  else {
     const json& g = spec.at("geometry");
     geometry.layers = g.at("layers").get<int>();
     geometry.absorber_thickness_mm = g.at("absorber").at("thickness_mm").get<double>();
     geometry.active_thickness_mm = g.at("active").at("thickness_mm").get<double>();
     geometry.transverse_mm = g.at("transverse_mm").get<double>();
   }
+  const int layer_count = tracker ? static_cast<int>(tracker_geometry.layers.size()) : geometry.layers;
+  const int slabs = tracker ? 1 : 2;
   const int events = spec.at("events").get<int>();
 
   GunConfig gun;
@@ -368,13 +512,15 @@ DevRunResult run_dev_simulation(const json& spec, int threads, const EventConsum
 
   DevRunResult result;
   result.geometry = geometry;
+  result.slabs = slabs;
+  result.layer_count = layer_count;
   result.events = events;
   result.threads = threads;
   result.incident_energy_mev = gun.energy_mev;
   result.particle = gun.particle;
   result.physics_list = spec.at("physics").at("list").get<std::string>();
   result.run_manager_type = kRunManagerTypeName;
-  result.edep_mev.assign(static_cast<std::size_t>(events) * 2 * geometry.layers, 0.0);
+  result.edep_mev.assign(static_cast<std::size_t>(events) * slabs * layer_count, 0.0);
 
   install_exception_handler_on_this_thread();  // the master thread (no-op unless `run` enabled it)
 
@@ -399,15 +545,17 @@ DevRunResult run_dev_simulation(const json& spec, int threads, const EventConsum
   }
   result.default_cut_mm = physics->GetDefaultCutValue() / mm;
 
-  // Sensitive volumes of the spec: which slab types record hits.
-  std::array<bool, 2> record_hits = {false, false};
+  // Sensitive volumes of the spec: which volumes record hits.
+  std::array<bool, kVolumeCount> record_volume = {false, false, false};
   for (const json& name : spec.at("sensitive")) {
-    for (std::size_t i = 0; i < 2; ++i) {
-      if (name == kSlabNames[i]) {
-        record_hits[i] = true;
+    for (std::size_t i = 0; i < kVolumeCount; ++i) {
+      if (name == kVolumeNames[i]) {
+        record_volume[i] = true;
       }
     }
   }
+  const std::array<bool, 2> record_hits = {record_volume[kVolumeAbsorber], record_volume[kVolumeActive]};
+  const FieldConfig field = field_config_of(spec);
 
   // Events come out of the buffer in event_id order whatever the thread count.
   // The window bounds memory (see reorder_buffer.hh): Geant4's run manager
@@ -423,11 +571,17 @@ DevRunResult run_dev_simulation(const json& spec, int threads, const EventConsum
   SharedResults shared;
   shared.ordered = &ordered;
   shared.cancel = &cancel;
-  shared.geometry = geometry;
+  shared.event_buffer_size = static_cast<std::size_t>(slabs) * layer_count;
   shared.spec_seed = spec.at("seed").get<std::uint64_t>();
   shared.edep_mev = &result.edep_mev;
 
-  run_manager->SetUserInitialization(new DetectorConstruction(spec, geometry, record_hits));
+  if (tracker) {
+    run_manager->SetUserInitialization(
+        new TrackerConstruction(tracker_geometry, field, record_volume[kVolumeTrackerLayer]));
+  }
+  else {
+    run_manager->SetUserInitialization(new DetectorConstruction(spec, geometry, record_hits, field));
+  }
   run_manager->SetUserInitialization(physics);
   run_manager->SetUserInitialization(new Actions(gun, &shared, after_seeding));
 

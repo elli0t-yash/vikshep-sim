@@ -38,9 +38,9 @@ nlohmann::json build_info()
     }
   }
   j["em_options"] = em_options;
-  j["templates"] = nlohmann::json::array({kTemplateLayeredCalorimeter});
+  j["templates"] = nlohmann::json::array({kTemplateLayeredCalorimeter, kTemplateTrackerBarrel});
   j["contract_version"] = kContractVersion;
-  j["spec_versions"] = nlohmann::json::array({kSpecVersion});
+  j["spec_versions"] = nlohmann::json::array({kSpecVersion10, kSpecVersion11});
   j["hits_schema_versions"] = nlohmann::json::array({kHitsSchemaVersion});
   j["datasets"] = nlohmann::json::array();
   j["platform"] = platform_json();

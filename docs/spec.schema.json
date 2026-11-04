@@ -1,25 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://vikshep.invalid/schemas/simspec-1.0.json",
-  "title": "vikshep-sim simulation spec, spec_version 1.0",
-  "description": "Structural rules of docs/SPEC.md. Rules that depend on the installed Geant4 (material and physics list names) or on the world size (the gun start must be inside the world) are checked by vikshep-sim validate, not here. The validator in vikshep-sim is authoritative.",
+  "$id": "https://vikshep.invalid/schemas/simspec-1.1.json",
+  "title": "vikshep-sim simulation spec, spec_version 1.0 and 1.1",
+  "description": "Structural rules of docs/SPEC.md. Rules that depend on the installed Geant4 (material and physics list names), on the world size (the gun start must be inside the world) or on comparing array elements (tracker_barrel radii must increase and layers must not overlap) are checked by vikshep-sim validate, not here. The validator in vikshep-sim is authoritative.",
   "type": "object",
   "additionalProperties": false,
   "required": ["spec_version", "template", "geometry", "gun", "events", "seed"],
   "properties": {
-    "spec_version": {"const": "1.0"},
-    "template": {"const": "layered_calorimeter"},
-    "geometry": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["layers", "absorber", "active", "transverse_mm"],
-      "properties": {
-        "layers": {"type": "integer", "minimum": 1, "maximum": 200},
-        "absorber": {"$ref": "#/$defs/slab"},
-        "active": {"$ref": "#/$defs/slab"},
-        "transverse_mm": {"type": "number", "exclusiveMinimum": 0}
-      }
-    },
+    "spec_version": {"enum": ["1.0", "1.1"]},
+    "template": {"enum": ["layered_calorimeter", "tracker_barrel"]},
+    "geometry": {"type": "object"},
     "gun": {
       "type": "object",
       "additionalProperties": false,
@@ -31,13 +21,21 @@
         "energy_GeV": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000},
         "position_mm": {
           "$ref": "#/$defs/vector3",
-          "description": "Default: [0, 0, -(stack_length/2 + 10)] mm. Must lie strictly inside the world; the validator checks that, the schema cannot."
+          "description": "Default: layered_calorimeter [0, 0, -(stack_length/2 + 10)] mm, tracker_barrel [0, 0, 0] mm. Must lie strictly inside the world; the validator checks that, the schema cannot."
         },
         "direction": {
           "$ref": "#/$defs/vector3",
           "not": {"const": [0, 0, 0]},
-          "default": [0, 0, 1]
+          "description": "Default: layered_calorimeter [0, 0, 1], tracker_barrel [1, 0, 0]."
         }
+      }
+    },
+    "field": {
+      "description": "spec_version 1.1 only. A zero vector (the default) creates no field object.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "B_T": {"$ref": "#/$defs/vector3", "default": [0, 0, 0], "description": "Tesla, global frame. The vector length must be at most 10; the validator checks that, the schema cannot."}
       }
     },
     "physics": {
@@ -49,20 +47,83 @@
     },
     "sensitive": {
       "type": "array",
-      "items": {"enum": ["absorber", "active"]},
+      "items": {"enum": ["absorber", "active", "tracker_layer"]},
       "minItems": 1,
       "uniqueItems": true,
-      "default": ["active"]
+      "description": "Default: layered_calorimeter [\"active\"], tracker_barrel [\"tracker_layer\"]."
     },
     "events": {"type": "integer", "minimum": 1, "maximum": 10000000},
     "seed": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}
   },
+  "allOf": [
+    {
+      "if": {"properties": {"spec_version": {"const": "1.0"}}, "required": ["spec_version"]},
+      "then": {
+        "properties": {"template": {"const": "layered_calorimeter"}},
+        "not": {"required": ["field"]}
+      }
+    },
+    {
+      "if": {"properties": {"template": {"const": "tracker_barrel"}}, "required": ["template"]},
+      "then": {
+        "properties": {
+          "geometry": {"$ref": "#/$defs/tracker_geometry"},
+          "sensitive": {"items": {"const": "tracker_layer"}}
+        }
+      },
+      "else": {
+        "properties": {
+          "geometry": {"$ref": "#/$defs/calorimeter_geometry"},
+          "sensitive": {"items": {"enum": ["absorber", "active"]}}
+        }
+      }
+    }
+  ],
   "$defs": {
     "vector3": {
       "type": "array",
       "items": {"type": "number"},
       "minItems": 3,
       "maxItems": 3
+    },
+    "calorimeter_geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layers", "absorber", "active", "transverse_mm"],
+      "properties": {
+        "layers": {"type": "integer", "minimum": 1, "maximum": 200},
+        "absorber": {"$ref": "#/$defs/slab"},
+        "active": {"$ref": "#/$defs/slab"},
+        "transverse_mm": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "tracker_geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layers"],
+      "properties": {
+        "layers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {"$ref": "#/$defs/tracker_layer"}
+        }
+      }
+    },
+    "tracker_layer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["radius_mm", "thickness_mm", "half_length_mm"],
+      "properties": {
+        "radius_mm": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000},
+        "thickness_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Must also be less than radius_mm of the same layer; the validator checks that."
+        },
+        "half_length_mm": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000},
+        "material": {"type": "string", "minLength": 1, "default": "G4_Si"}
+      }
     },
     "slab": {
       "type": "object",

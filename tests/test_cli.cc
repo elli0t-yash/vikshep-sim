@@ -157,8 +157,8 @@ TEST_CASE("info --json lists the template and versions", "[cli]")
   const Outcome r = run("info --json");
   CHECK(r.code == 0);
   const json info = json::parse(r.out);
-  CHECK(info.at("templates") == json::array({"layered_calorimeter"}));
-  CHECK(info.at("spec_versions") == json::array({"1.0"}));
+  CHECK(info.at("templates") == json::array({"layered_calorimeter", "tracker_barrel"}));
+  CHECK(info.at("spec_versions") == json::array({"1.0", "1.1"}));
   CHECK(info.at("hits_schema_versions") == json::array({"1.0"}));
   CHECK(info.at("contract_version") == 1);
   // Sorted keys, no extra whitespace beyond the indented dump, byte-stable.

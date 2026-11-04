@@ -34,7 +34,7 @@ Fields emitted today:
 | geant4.multithreaded | boolean | multithreaded Geant4 |
 | physics_lists | array of string | reference physics list names from Geant4 |
 | em_options | array of string | EM option suffixes that can be appended to a physics list name; omitting the suffix selects the list's default |
-| templates | array of string | names of the built-in geometry templates (`layered_calorimeter`); see SPEC.md |
+| templates | array of string | names of the built-in geometry templates (`layered_calorimeter`, `tracker_barrel`); see SPEC.md |
 | datasets | array | installed data sets; empty until milestone Y6 |
 | platform.os | string | "linux", "macos", "windows" or "unknown" |
 | platform.arch | string | "x86_64", "arm64" or "unknown" |
@@ -46,7 +46,7 @@ of this document):
 | Key | Type | Meaning |
 |-----|------|---------|
 | contract_version | integer | version of this document, currently 1 |
-| spec_versions | array of string | `spec_version` values the binary accepts, for example ["1.0"] |
+| spec_versions | array of string | `spec_version` values the binary accepts, for example ["1.0", "1.1"] |
 | hits_schema_versions | array of string | `vikshep.hits.schema_version` values it can write, for example ["1.0"] |
 
 Example (lists shortened):
@@ -60,8 +60,8 @@ Example (lists shortened):
   "hits_schema_versions": ["1.0"],
   "physics_lists": ["FTFP_BERT", "FTFP_BERT_TRV"],
   "platform": {"arch": "arm64", "compiler": "clang 21.1.8", "os": "macos"},
-  "spec_versions": ["1.0"],
-  "templates": ["layered_calorimeter"],
+  "spec_versions": ["1.0", "1.1"],
+  "templates": ["layered_calorimeter", "tracker_barrel"],
   "tool_version": "0.1.0"
 }
 ```
@@ -74,7 +74,8 @@ milestone Y6; until then the app MUST treat that array as an opaque list.
 
 Checks a spec without running a simulation (rules: SPEC.md).
 
-- Valid: exit 0, stdout is one line `{"event":"valid","spec_version":"1.0"}`; with
+- Valid: exit 0, stdout is one line `{"event":"valid","spec_version":"<version of the spec>"}`
+  (for a spec written as 1.0, `"1.0"`; for 1.1, `"1.1"`); with
   `--canonical`, stdout is instead the canonical form of the spec (SPEC.md,
   section 4) followed by a newline.
 - Invalid: exit 2, stdout is exactly one `error` line as in section 2.1 with the
@@ -242,9 +243,9 @@ Two-space indentation, one final newline. Guaranteed keys:
 | run_manager | the Geant4 run manager class used |
 | seed | the spec's seed |
 | seeding_scheme | integer, version of the per-event seeding (HITS.md, section 4.2) |
-| spec | the canonical, resolved spec as a JSON object (SPEC.md, section 4) |
+| spec | the canonical, resolved spec as a JSON object (SPEC.md, section 4). For a spec written as 1.0 it has no `field` key; for 1.1 it has one (the magnetic field, zero or not) |
 | spec_oid | the OID rule applied to the bytes of the canonical spec (SPEC.md, section 4), so the same experiment has the same `spec_oid` whatever the order of keys in the spec file |
-| spec_version | string |
+| spec_version | string | the spec's own version as written in the file |
 | tool_version | string |
 | writer_scheme | integer, version of the way `hits.arrow` is written (HITS.md, section 6.1) |
 
@@ -259,7 +260,7 @@ Keys sorted. Guaranteed keys:
 | oid | string | the 28-character OID of hits.arrow |
 | contract_version | integer | this contract's version |
 | hits_schema_version | string | for example "1.0" |
-| spec_version | string | the spec's version, for example "1.0" |
+| spec_version | string | the spec's own version as written in the file, for example "1.0" or "1.1" |
 | events_requested | integer | events asked for |
 | events_completed | integer | events finished (equals events_requested on success) |
 | events_with_hits | integer | events with at least one hit |
@@ -297,8 +298,10 @@ next to its own output paths.
   carries a `missing` key naming the field (section 2.1).
 - Validation covers syntax, `spec_version`, required fields, types, ranges,
   names (physics list, EM option, template) against what `info --json` lists,
-  the gun start point against the world (SPEC.md, 2.2),
-  and consistency between fields.
+  the gun start point against the world (SPEC.md, 2.2 and 2.5),
+  and consistency between fields (for example, that the layers of a
+  `tracker_barrel` have increasing radii and do not overlap, SPEC.md 2.5; each
+  problem points at the array element).
 - Missing data sets are a separate check, run after validation succeeds:
   `DATASETS_MISSING`, exit 3.
 - Exit code 2 and no output folder.
