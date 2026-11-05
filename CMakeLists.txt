@@ -79,6 +79,7 @@ add_library(vikshep_core STATIC
   src/datasets_check.cc
   src/dev_run.cc
   src/event_digest.cc
+  src/export3d.cc
   src/event_seed.cc
   src/atomic_rename.cc
   src/build_info.cc
@@ -134,6 +135,7 @@ include(Catch)
 add_executable(vikshep-tests
   tests/test_spec.cc
   tests/test_tracker_spec.cc
+  tests/test_export3d.cc
   tests/test_cli.cc
   tests/test_datasets.cc
   tests/test_reorder_buffer.cc
@@ -258,3 +260,26 @@ add_test(NAME tracker_physics_straight_line_and_curvature
           $<TARGET_FILE:vikshep-sim>
 )
 set_tests_properties(tracker_physics_straight_line_and_curvature PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
+
+# The 3-D export (docs/EXPORT3D.md): the files parse and follow the documented layout, hits.arrow
+# and its OID are the same with the export on and off (1 and 4 threads), the exported files are
+# thread-count independent, and the trajectories agree with the hits.
+add_test(NAME export3d_files_and_oid_unchanged
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_export3d.py
+          $<TARGET_FILE:vikshep-sim>
+          ${CMAKE_CURRENT_SOURCE_DIR}/docs/examples
+          ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden
+          ${CMAKE_CURRENT_SOURCE_DIR}/tests/trajectories.schema.json
+)
+set_tests_properties(export3d_files_and_oid_unchanged PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
+
+# geometry.glb of both examples passes the Khronos glTF Validator (pinned in tests/gltf-validator)
+# with no error and no warning. Skipped (77) without node or `npm ci` there; a failure under
+# VIKSHEP_REQUIRE_DATA.
+add_test(NAME export3d_glb_khronos_validator
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_glb_validator.py
+          $<TARGET_FILE:vikshep-sim>
+          ${CMAKE_CURRENT_SOURCE_DIR}/docs/examples
+          ${CMAKE_CURRENT_SOURCE_DIR}
+)
+set_tests_properties(export3d_glb_khronos_validator PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT ${VIKSHEP_TEST_TIMEOUT})

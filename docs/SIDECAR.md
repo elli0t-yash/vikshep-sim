@@ -82,7 +82,7 @@ Checks a spec without running a simulation (rules: SPEC.md).
   `errors` array, nothing else.
 - Human-readable text goes to stderr.
 
-### 1.3 `vikshep-sim run --spec <file> --out <dir> [--threads N] [--progress jsonl]`
+### 1.3 `vikshep-sim run --spec <file> --out <dir> [--threads N] [--progress jsonl] [--export-3d [--export-events N] [--export-min-energy GeV]]`
 
 | Option | Meaning |
 |--------|---------|
@@ -90,11 +90,15 @@ Checks a spec without running a simulation (rules: SPEC.md).
 | `--out <dir>` | the output folder to create. Required. It MUST NOT exist; its parent MUST exist. |
 | `--threads N` | worker threads, a positive integer. Default **1**. It never changes the output: the same spec and seed give the same `hits.arrow` and OID for any N (HITS.md, section 4). |
 | `--progress jsonl` | write machine-readable events to stdout (section 2). Default is `none`: stdout stays empty, in success and in failure; the exit code and stderr tell what happened. |
+| `--export-3d` | also write the two optional files `geometry.glb` and `trajectories.json` (EXPORT3D.md). Off by default; without it nothing about them exists anywhere in the output. It never changes `hits.arrow` or its OID. |
+| `--export-events N` | with `--export-3d`: export the tracks of the first N events, an integer from 1 to 100 (default 10). Without `--export-3d` it is a usage error. |
+| `--export-min-energy GeV` | with `--export-3d`: keep secondary tracks whose kinetic energy at creation is at least this, a number from 0 to 10000 in GeV (default 0.001). Primaries are always kept. Without `--export-3d` it is a usage error. |
 
 Reading the spec from stdin is not supported in v1.
 
 Mistakes in the command line itself (an unknown option, a missing `--spec`, a bad
-`--progress` value) are found before `run` starts. They are reported on stderr only,
+`--progress` value, an `--export-*` tuning option without `--export-3d` or with a value out of
+range) are found before `run` starts. They are reported on stderr only,
 with exit code 2; stdout stays empty, because the progress mode may not be known.
 
 Order of checks, before any output exists: the spec is validated in full (exit 2);
@@ -137,6 +141,16 @@ Done:
 ```json
 {"event":"done","oid":"0123456789abcdef0123456789ab"}
 ```
+
+With `--export-3d` the line has one more key, `exports`, an array with one entry per exported
+file, in the order `geometry.glb`, `trajectories.json`, each `{"bytes": <size>, "file": <name>}`:
+
+```json
+{"event":"done","exports":[{"bytes":15340,"file":"geometry.glb"},{"bytes":20411,"file":"trajectories.json"}],"oid":"0123456789abcdef0123456789ab"}
+```
+
+Without the flag the line is exactly as above, with no `exports` key. `oid` is always the OID of
+`hits.arrow`, never of an exported file.
 
 `oid` is the 28-character OID of `hits.arrow` (HITS.md, section 6). The line is
 emitted only after the output folder has been renamed into place (section 5).
@@ -201,7 +215,7 @@ MUST handle an unknown code by falling back to the exit code.
 | GEOMETRY_ERROR | the geometry (template or GDML) cannot be built |
 | OUTPUT_NOT_WRITABLE | creating or writing the temporary folder, or the final rename, failed |
 | SIMULATION_FAILED | Geant4 reported a fatal error during the run: a G4Exception of severity FatalException, FatalErrorInArgument, RunMustBeAborted or EventMustBeAborted, on any thread. The run stops at once, exactly one error line is written (the message is short; origin, code and text of the Geant4 exception are on stderr), the temporary output folder is removed, and the process ends with exit code 1 without a core dump. Geant4 warnings (JustWarning) are written to stderr and the run goes on |
-| INTERNAL | any other failure of the program itself |
+| INTERNAL | any other failure of the program itself, including a failure of the 3-D export (writing or computing `geometry.glb` or `trajectories.json`, EXPORT3D.md section 5): the message says "3-D export failed" and no output folder is left behind |
 | CANCELLED | the run was cancelled (section 7) |
 
 ## 5. Output folder
@@ -213,12 +227,14 @@ MUST handle an unknown code by falling back to the exit code.
 | hits.arrow | always | the hits (HITS.md) |
 | provenance.json | always | what produced the hits (5.1) |
 | run_summary.json | always | counts and the OID (5.2) |
-| geometry.glb | only if the spec asks for it | glTF binary of the geometry |
-| trajectories.json | only if the spec asks for it | trajectories |
+| geometry.glb | only with `--export-3d` | glTF 2.0 binary of the detector (EXPORT3D.md, section 2) |
+| trajectories.json | only with `--export-3d` | tracks of the first events (EXPORT3D.md, section 3) |
 
-The spec's field names that request the optional files are defined in the
-simspec schema. Their formats are not part of v1 beyond their file names.
-Only `hits.arrow` is hashed into the OID.
+The two optional files are requested by the command-line flag, not by the spec, so the
+spec, its canonical form and its `spec_oid` are the same with the flag on and off. Their
+formats are in EXPORT3D.md. They are a subset of the simulation, for viewing, and the app MUST
+NOT treat them as a record of the run. Only `hits.arrow` is hashed into the OID; the exported
+files have OIDs of their own (5.1, 5.2).
 
 No other files are present. The app MUST ignore files it does not know.
 
@@ -248,6 +264,7 @@ Two-space indentation, one final newline. Guaranteed keys:
 | spec_version | string | the spec's own version as written in the file |
 | tool_version | string |
 | writer_scheme | integer, version of the way `hits.arrow` is written (HITS.md, section 6.1) |
+| export_3d | only with `--export-3d`: `{"events": <events exported>, "files": [{"bytes": <int>, "file": <name>, "oid": <28 hex>}, ...], "format_version": "1.0", "max_tracks_per_event": 500, "min_energy_GeV": <number>}`, the files in the order `geometry.glb`, `trajectories.json`. The `oid` of a file is the OID rule applied to that file's bytes (EXPORT3D.md, section 5), unrelated to the OID of `hits.arrow`. With the flag off the key is absent and `provenance.json` is byte-identical to what it was before the export existed. |
 
 Further keys MAY be added. (Decision S5.)
 
@@ -269,6 +286,7 @@ Keys sorted. Guaranteed keys:
 | hits_file_bytes | integer | size of hits.arrow in bytes |
 | threads | integer | worker threads used |
 | wall_time_s | number | elapsed seconds |
+| exports | array | only with `--export-3d`: one `{"bytes": <int>, "file": <name>, "oid": <28 hex>}` per exported file, in the order `geometry.glb`, `trajectories.json` (the same entries as `provenance.json`, `export_3d.files`) |
 
 `wall_time_s` and `threads` are in `run_summary.json` only. Neither appears in
 `hits.arrow` or `provenance.json`, so nothing that is hashed or compared for
@@ -339,7 +357,11 @@ next to its own output paths.
   a type or an exit code, or changing the cancellation behaviour.
 - The app MUST read `contract_version` first and refuse a value it does not
   know. It MUST ignore unknown keys.
-- Frozen after Y7.
+- Frozen after Y7. The 3-D export (`--export-3d`, the `exports` key of the `done` line and of
+  `run_summary.json`, `export_3d` in `provenance.json`, the two optional files) is **additive**:
+  new optional command-line options, new optional keys that are present only when the option is
+  used, and a new use of an existing error code. `contract_version` stays **1**. A run without
+  `--export-3d` is unchanged in every byte of its output.
 
 ## 9. What the app may rely on, and what it must not
 
@@ -351,7 +373,8 @@ The app MAY rely on:
 - the output folder being complete or absent (5.3);
 - `hits.arrow` being exactly as specified in HITS.md, and its OID being the
   fingerprint of those bytes;
-- the same build, platform, spec and seed giving the same `hits.arrow` and OID.
+- the same build, platform, spec and seed giving the same `hits.arrow` and OID, with or without
+  `--export-3d`.
 
 The app MUST NOT:
 
@@ -362,7 +385,9 @@ The app MUST NOT:
   stays the same across tool versions;
 - compare OIDs from different builds, platforms or operating systems and expect
   them to match, or tell a user that they should;
-- treat `wall_time_s` or `threads` as reproducible.
+- treat `wall_time_s` or `threads` as reproducible;
+- treat `geometry.glb` or `trajectories.json` as complete (they keep the first events and the
+  more energetic tracks only, EXPORT3D.md section 4) or use them for analysis.
 
 ## Decisions to confirm
 
@@ -379,4 +404,6 @@ The app MUST NOT:
 | S9 | Sources of the spec | `--spec <file>` only | Also `-` for stdin |
 | S10 | SIGINT | Decided: treated like SIGTERM | Not handled |
 | S12 | Default of `--threads` | 1 (added with the `run` command) | The number of cores |
+| S13 | How the 3-D files are requested | Command-line flag `--export-3d`, so the spec and `spec_oid` do not change | A field in the spec |
+| S14 | Export failure | `INTERNAL`, no output folder | A new error code |
 | S11 | Windows | Specified, not built or tested | Drop from the contract until built |

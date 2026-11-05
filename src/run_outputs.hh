@@ -15,6 +15,9 @@ struct ProvenanceFacts {
   double default_cut_mm = 0.0;    // default production cut in effect
   std::vector<DataSetRecord> data_sets;
   CondaPackageRecord geant4_conda;  // the conda package geant4: version and build string
+  // The `export_3d` object of provenance.json (docs/SIDECAR.md, 5.1): null (the key is then absent)
+  // unless the run used --export-3d.
+  nlohmann::json export_3d;
 };
 
 // provenance.json: what produced the hits. Deterministic: the same build, platform, spec
@@ -36,6 +39,8 @@ struct RunSummaryFacts {
   std::uint64_t hits_file_bytes = 0;
   int threads = 0;          // not reproducible: summary only
   double wall_time_s = 0.0; // not reproducible: summary only
+  // The `exports` array of run_summary.json: null (the key is then absent) unless the run used --export-3d.
+  nlohmann::json exports;
 };
 
 // run_summary.json. Contains wall time and the thread count, so it is not reproducible

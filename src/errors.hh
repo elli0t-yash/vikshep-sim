@@ -27,6 +27,13 @@ class IntegrityError : public std::runtime_error {
   using std::runtime_error::runtime_error;
 };
 
+// The 3-D export (geometry.glb, trajectories.json) failed: INTERNAL, whatever the cause
+// (docs/EXPORT3D.md, section 5).
+class ExportError : public std::runtime_error {
+ public:
+  using std::runtime_error::runtime_error;
+};
+
 // A failure with a stable code chosen at the throw site (OUTPUT_EXISTS, DATASETS_MISSING,
 // CANCELLED, ...).
 class CodedError : public std::runtime_error {

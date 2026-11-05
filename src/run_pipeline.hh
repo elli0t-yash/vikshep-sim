@@ -4,11 +4,13 @@
 #include <stdexcept>
 #include <string>
 #include <functional>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
 #include "dev_run.hh"
 #include "errors.hh"
+#include "export3d.hh"
 #include "hits_writer.hh"
 
 // The whole pipeline from a validated spec to an output folder (docs/SIDECAR.md,
@@ -31,6 +33,9 @@ struct PipelineOptions {
   // into place, the run stops, nothing is left behind and CodedError("CANCELLED") is thrown.
   // May be empty.
   CancelCheck cancel;
+  // The optional 3-D export (docs/EXPORT3D.md). Off by default; when off nothing about it is
+  // created or recorded.
+  ExportOptions export3d;
   // Test only: rows per record batch of hits.arrow. The default is the one of HITS.md.
   std::size_t batch_rows = HitsWriter::kDefaultBatchRows;
 };
@@ -42,6 +47,9 @@ struct PipelineResult {
   std::uint64_t events_without_hits = 0;
   double wall_time_s = 0.0;
   DevRunResult table;  // the energy table of the same run (dev-run prints it)
+  // With the export: geometry.glb, then trajectories.json. Empty otherwise.
+  std::vector<ExportedFile> exports;
+  std::uint64_t export_events = 0;  // events in trajectories.json
 };
 
 // spec: a spec that passed validate_spec(). out_dir must not exist and its parent must.

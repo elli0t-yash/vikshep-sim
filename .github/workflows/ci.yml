@@ -1,15 +1,18 @@
 name: ci
 
+# A branch with an open pull request is tested by the pull_request event only; a push triggers CI
+# for main alone. (Both events on a branch used to start two runs in the same concurrency group,
+# and the newer cancelled the older.)
 on:
   push:
-    branches: [main, "y[0-9]*/**"]
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
 
-# One group per branch, whether the run was started by a push or by a pull request (head_ref is the
-# branch of a pull request, ref_name the branch of a push): the newer run cancels the older one.
+# One group per branch (head_ref is the branch of a pull request, ref_name the branch of a push to
+# main): a newer run of the same branch cancels the older one.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
@@ -65,6 +68,16 @@ jobs:
             echo 'eval "$("$MAMBA_EXE" shell hook --shell bash)"'
             echo 'micromamba activate vikshep-sim'
           } > "$BASH_ENV"
+
+      # geometry.glb is checked with the Khronos glTF Validator, pinned to an exact version in
+      # tests/gltf-validator/package-lock.json (test tooling only; nothing of it is shipped).
+      - name: Node for the glTF validator
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install the glTF validator
+        run: npm ci --no-audit --no-fund --prefix tests/gltf-validator
 
       - name: Environment
         run: |

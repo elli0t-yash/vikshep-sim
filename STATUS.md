@@ -818,6 +818,74 @@ Calorimeter in B = 1 T: 1 and 4 threads identical (b162e32c570903019813184a4cdf)
 - `dev-run` does not support the tracker.
 - No claim is made that tracker or field output is identical across platforms.
 
+## Milestone Y10: 3-D export, optional (branch y10/export-3d)
+
+Measured 2026-11-04 (local date; `date -u` is the same day), macOS arm64, Release, Geant4 11.4.3.
+
+- [x] CI trigger: pull_request, and push only for main (was: both, cancelling each other)
+- [x] Docs first: docs/EXPORT3D.md, SIDECAR.md (flags, `done` line, provenance, summary, contract v1 additive)
+- [x] `run --export-3d [--export-events N] [--export-min-energy GeV]`: geometry.glb, trajectories.json
+- [x] Read-only tracking and stepping actions, installed only with the flag; selection by event_id through
+      the reorder buffer; limits: 10 events (cap 100), 1 MeV, 500 tracks per event
+- [x] scripts/view_3d.html (checked in Chrome against both templates; three.js 0.160.0 from jsDelivr with SRI hashes for the 7 modules)
+
+### hits.arrow with the export on and off (tests/check_export3d.py)
+
+| Run | OID, export off, 1 and 4 threads | OID, export on, 1 and 4 threads |
+|-----|----------------------------------|---------------------------------|
+| tracker_muon.json | 50f400d6f989043c08fdfb0cc21d | 50f400d6f989043c08fdfb0cc21d |
+| electron_shower.json | 2180f381ce92c24afd6fe795810b | 2180f381ce92c24afd6fe795810b |
+
+hits.arrow is byte-identical in all eight runs. calorimeter.json and pion_shower.json stay at
+a41f45244192684ae4061d198cc6 and 704ec8b25b180937e482c020614e (tests/check_spec10_golden.py, flag absent).
+
+### Sizes (default limits unless stated)
+
+| Run | geometry.glb | trajectories.json | Tracks |
+|-----|--------------|-------------------|--------|
+| tracker_muon.json, 10 events (6 layers) | 96,828 bytes | 7,689 bytes | 10 created, 10 kept, 0 dropped |
+| electron_shower.json (5 GeV e-, 10 layers), 10 events | 5,584 bytes | 1,640,799 bytes | 71,823 created, 5,000 kept (500 per event), 66,823 dropped (6,468 to 6,881 per event) |
+
+A 2 T muon, 100 events: circle-fit radius from the exported trajectory points 1.8359 +- 0.0019 m, from the
+hits 1.8367 +- 0.0025 m (mean difference 0.04 %; per event, median 0.22 %, maximum 3.3 %), expected 1.8356 m.
+
+### Follow-up measurements (2026-11-04, macOS arm64, Release, 1 thread)
+
+- glTF validator (Khronos, npm gltf-validator 2.0.0-dev.3.10, pinned in tests/gltf-validator/package-lock.json,
+  run by scripts/validate_glb.mjs and the ctest `export3d_glb_khronos_validator`): geometry.glb of
+  tracker_muon.json and of calorimeter.json: 0 errors, 0 warnings, 0 infos, 0 hints. A file with its last byte
+  removed is reported as invalid (the test checks that, so a validator that checks nothing cannot pass).
+- Peak memory (`/usr/bin/time -l`, maximum resident set size), 50 GeV e-, 10 events, docs/examples/electron_shower.json
+  with energy 50 GeV, `--export-3d --export-min-energy 0` (65,000 to 69,000 tracks per event):
+
+  | Build | without --export-3d | with --export-3d --export-min-energy 0 |
+  |-------|---------------------|-----------------------------------------|
+  | tracks held until the event ends (before) | 152.5 MB | 177.1 MB (+24.5 MB), output 2,390,930 bytes trajectories.json |
+  | at most 500 tracks held during the event (now) | 152.5 MB | 153.6 to 153.9 MB (+1 MB) | 
+
+  The files with the new code are byte-identical to the ones from the old code (hits.arrow, geometry.glb,
+  trajectories.json compared with cmp).
+- Track mix of the 500 kept per event, 5 GeV e- shower, 10 events, default limits: per event 246 to 254
+  photons (neutral) and 246 to 269 charged (e-: 137 to 151, e+: 100 to 118; the primary included);
+  totals 2,531 charged and 2,469 neutral of 5,000. Lowest kept secondary energy per event 5.413 to 5.937 MeV
+  (0.005413 to 0.005937 GeV); tracks_total per event 6,968 to 7,381.
+
+### Not done / not verified
+
+- CI of this branch: see the pull request (the first Linux run of this code).
+  The glb float32 values use libm `cos` and `sin`: the export files are claimed identical only for the same
+  build and platform.
+- Viewer changes after the first review (thick tracks via three.js LineSegments2 drawn over the volumes with
+  the depth test off, volume opacity 0.15 with sliders, primary highlight, charged-only / primary-only /
+  vertex-point toggles, dimmed neutrals, per-colour counts, camera framed on the whole geometry): the module
+  script passes `node --check` and all seven SRI hashes match the npm package bytes (every module imported by
+  a covered file is covered), but the new viewer was **not rendered** by me: no local web server could be
+  started in this session and Chrome refuses file:// pages. Look at it before relying on it.
+- The viewer was looked at on macOS Chrome only (before the integrity attributes). The SRI hashes were
+  compared with the bytes of the npm package three@0.160.0 (the CDN serves the same bytes); a browser
+  enforcing them was NOT tested after they were added (no local web server could be started in this session).
+- Memory of Geant4's own track stack for very large showers is not touched by the export and not measured.
+
 ## Versions (2026-10-22)
 
 Geant4 11.4.3 (newest 11.x available for both linux-64 and osx-arm64 on

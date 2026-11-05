@@ -1,0 +1,8 @@
+{
+  "name": "vikshep-gltf-validator-check",
+  "private": true,
+  "description": "Pins the Khronos glTF Validator used by scripts/validate_glb.mjs. Test tooling only.",
+  "dependencies": {
+    "gltf-validator": "2.0.0-dev.3.10"
+  }
+}
