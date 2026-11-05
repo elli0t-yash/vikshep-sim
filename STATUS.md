@@ -827,7 +827,7 @@ Measured 2026-11-04 (local date; `date -u` is the same day), macOS arm64, Releas
 - [x] `run --export-3d [--export-events N] [--export-min-energy GeV]`: geometry.glb, trajectories.json
 - [x] Read-only tracking and stepping actions, installed only with the flag; selection by event_id through
       the reorder buffer; limits: 10 events (cap 100), 1 MeV, 500 tracks per event
-- [x] scripts/view_3d.html (checked in Chrome against both templates; three.js 0.160.0 from jsDelivr with SRI hashes)
+- [x] scripts/view_3d.html (checked in Chrome against both templates; three.js 0.160.0 from jsDelivr with SRI hashes for the 7 modules)
 
 ### hits.arrow with the export on and off (tests/check_export3d.py)
 
@@ -875,6 +875,12 @@ hits 1.8367 +- 0.0025 m (mean difference 0.04 %; per event, median 0.22 %, maxim
 - CI of this branch: see the pull request (the first Linux run of this code).
   The glb float32 values use libm `cos` and `sin`: the export files are claimed identical only for the same
   build and platform.
+- Viewer changes after the first review (thick tracks via three.js LineSegments2 drawn over the volumes with
+  the depth test off, volume opacity 0.15 with sliders, primary highlight, charged-only / primary-only /
+  vertex-point toggles, dimmed neutrals, per-colour counts, camera framed on the whole geometry): the module
+  script passes `node --check` and all seven SRI hashes match the npm package bytes (every module imported by
+  a covered file is covered), but the new viewer was **not rendered** by me: no local web server could be
+  started in this session and Chrome refuses file:// pages. Look at it before relying on it.
 - The viewer was looked at on macOS Chrome only (before the integrity attributes). The SRI hashes were
   compared with the bytes of the npm package three@0.160.0 (the CDN serves the same bytes); a browser
   enforcing them was NOT tested after they were added (no local web server could be started in this session).
