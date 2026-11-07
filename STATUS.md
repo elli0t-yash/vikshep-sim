@@ -903,7 +903,9 @@ Written 2026-11-07. Nothing built locally: the package is built and tested by
       anaconda.org channel in the repository variable ANACONDA_OWNER, with the secret
       ANACONDA_API_KEY of the "anaconda" environment
 - [x] README.md: "Conda package" (states that it is not published yet)
-- [ ] CI build green on linux-64, osx-arm64, osx-64 (macos-15-intel)
+- [x] CI build green on linux-64, osx-arm64, osx-64 (macos-15-intel): conda workflow run 42402431643
+      on commit 00fb6ea; each build installs the package and runs its tests, including the
+      20-event electron_shower.json run
 - [ ] Owner: anaconda.org channel, ANACONDA_OWNER variable, "anaconda" environment with
       ANACONDA_API_KEY (and a required reviewer), then a v0.1.0 tag
 
