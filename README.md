@@ -68,7 +68,7 @@ golden OIDs of `tests/golden/RUN_OIDS.txt` are keyed by the build and need re-re
 
 `recipe/recipe.yaml` builds vikshep-sim as a conda package with
 [rattler-build](https://rattler.build), with Geant4 11.4.3 (noqt) pinned at build and run
-time; `.github/workflows/conda.yml` builds and tests it on linux-64, osx-arm64 and osx-64
+time (macOS packages need macOS 13.3 or later); `.github/workflows/conda.yml` builds and tests it on linux-64, osx-arm64 and osx-64
 for pull requests that touch the recipe, the build or the sources. The package is not
 published yet. Once a tag is uploaded to an anaconda.org channel, installing it pulls Geant4
 and its data sets from conda-forge, and activating the environment sets the data set

@@ -914,6 +914,11 @@ Decisions to confirm:
 - C2: osx-64 is built too (macos-15-intel runner), because Intel Macs are still in use.
 - C3: rattler-build rather than conda-build; it is in conda-forge and is installed by the
       workflow with micromamba, as the environment is in ci.yml.
+- C4: macOS packages need macOS 13.3 or later: src/export3d.cc uses std::to_chars for
+      floating point, which libc++ makes available from 13.3 (the first CI run failed on both
+      macOS builds with "'to_chars' is unavailable: introduced in macOS 13.3"; linux-64 built and
+      passed its tests, including the 20-event run). recipe/variants.yaml raises the deployment
+      target through the C stdlib package.
 
 ## Versions (2026-10-22)
 

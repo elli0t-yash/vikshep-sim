@@ -58,7 +58,8 @@ jobs:
       - name: Build and test the package
         run: |
           "$MAMBA_EXE" run --name rattler rattler-build build \
-            --recipe recipe/recipe.yaml --channel conda-forge --output-dir output
+            --recipe recipe/recipe.yaml --variant-config recipe/variants.yaml \
+            --channel conda-forge --output-dir output
 
       - uses: actions/upload-artifact@v4
         with:

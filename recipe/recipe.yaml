@@ -30,6 +30,9 @@ requirements:
   build:
     - ${{ compiler('c') }}
     - ${{ compiler('cxx') }}
+    # macOS deployment target 13.3 (std::to_chars, see variants.yaml)
+    - if: osx
+      then: ${{ stdlib('c') }}
     - cmake
     - ninja
   host:
