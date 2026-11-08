@@ -1,0 +1,78 @@
+# Conda package of vikshep-sim, built with rattler-build by .github/workflows/conda.yml.
+# The pins follow environment.yml: the simulation output depends on the Geant4 build, so
+# Geant4 is pinned exactly at build and at run time. Geant4 and its data sets come from
+# conda-forge (the geant4 package depends on one package per data set), so installing this
+# package installs them and activating the environment sets G4LEDATA and the others.
+
+context:
+  # Keep equal to project(VERSION) in CMakeLists.txt.
+  version: "0.1.0"
+
+package:
+  name: vikshep-sim
+  version: ${{ version }}
+
+source:
+  path: ..
+
+build:
+  number: 0
+  skip:
+    - win
+  script:
+    - cmake -S . -B build -G Ninja $CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PREFIX" -DCMAKE_FIND_FRAMEWORK=LAST
+    # Only the program; the test executables are for development (ctest), not shipped.
+    - cmake --build build --target vikshep-sim
+    - install -d "$PREFIX/bin"
+    - install -m 755 build/vikshep-sim "$PREFIX/bin/vikshep-sim"
+
+requirements:
+  build:
+    - ${{ compiler('c') }}
+    - ${{ compiler('cxx') }}
+    # macOS deployment target 13.3 (std::to_chars, see variants.yaml)
+    - if: osx
+      then: ${{ stdlib('c') }}
+    - cmake
+    - ninja
+  host:
+    - geant4 ==11.4.3 *noqt*
+    - cli11 ==2.7.2
+    - nlohmann_json ==3.12.0
+    # Found unconditionally by CMakeLists.txt (tests and their Python), though not built here.
+    - catch2 ==3.16.1
+    - python
+    - expat
+    - zlib
+    - freetype
+  run:
+    - geant4 ==11.4.3 *noqt*
+
+tests:
+  - script:
+      - vikshep-sim info --json
+  - files:
+      source:
+        - docs/examples/electron_shower.json
+    script:
+      - vikshep-sim validate --spec docs/examples/electron_shower.json
+      # A real 20-event Geant4 run: needs the data sets that come with the geant4 package.
+      - vikshep-sim run --spec docs/examples/electron_shower.json --out run_e
+      - test -s run_e/hits.arrow
+      - test -s run_e/provenance.json
+      - test -s run_e/run_summary.json
+
+about:
+  homepage: https://github.com/elli0t-yash/vikshep-sim
+  repository: https://github.com/elli0t-yash/vikshep-sim
+  license: AGPL-3.0-only
+  license_file:
+    - LICENSE
+    - NOTICE
+  summary: Drives Geant4 from a JSON spec and writes hits.arrow, provenance.json and run_summary.json
+  description: |
+    vikshep-sim embeds Geant4 (from conda-forge) and turns a JSON spec into a run folder:
+    hits.arrow (one row per energy deposit, Arrow IPC), provenance.json and run_summary.json
+    with the run's OID. Output is identical on the same build, platform and seed; it is not
+    promised to be identical across platforms. Geant4 is developed by the Geant4
+    Collaboration and is not part of this package's source (see NOTICE).

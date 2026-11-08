@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-11-02 (UTC, from date -u).
+Last updated: 2026-11-07 (UTC, from date -u).
 
 ## Milestone Y1: skeleton, CLI and CI
 
@@ -885,6 +885,42 @@ hits 1.8367 +- 0.0025 m (mean difference 0.04 %; per event, median 0.22 %, maxim
   compared with the bytes of the npm package three@0.160.0 (the CDN serves the same bytes); a browser
   enforcing them was NOT tested after they were added (no local web server could be started in this session).
 - Memory of Geant4's own track stack for very large showers is not touched by the export and not measured.
+
+## Milestone Y11 (proposed): conda package (branch y11/conda-package)
+
+Written 2026-11-07. Nothing built locally: the package is built and tested by
+.github/workflows/conda.yml on the pull request.
+
+- [x] recipe/recipe.yaml (rattler-build): pins from environment.yml, Geant4 11.4.3 noqt at build
+      and run time, only the vikshep-sim target built (Catch2 and Python are still found by
+      CMakeLists.txt at configure time, so they are host requirements), binary installed to
+      $PREFIX/bin (CMakeLists.txt has no install rules)
+- [x] Package tests: `info --json`, `validate`, and a 20-event electron_shower.json run that
+      must write hits.arrow, provenance.json and run_summary.json (needs the Geant4 data sets of
+      the geant4 package)
+- [x] .github/workflows/conda.yml: build and test on linux-64, osx-arm64 and osx-64 for pull
+      requests touching recipe/, the build or the sources; upload on a vX.Y.Z tag to the
+      anaconda.org channel in the repository variable ANACONDA_OWNER, with the secret
+      ANACONDA_API_KEY of the "anaconda" environment
+- [x] README.md: "Conda package" (states that it is not published yet)
+- [x] CI build green on linux-64, osx-arm64, osx-64 (macos-15-intel): conda workflow run 42402431643
+      on commit 00fb6ea; each build installs the package and runs its tests, including the
+      20-event electron_shower.json run
+- [ ] Owner: anaconda.org channel, ANACONDA_OWNER variable, "anaconda" environment with
+      ANACONDA_API_KEY (and a required reviewer), then a v0.1.0 tag
+
+Decisions to confirm:
+
+- C1: licence field `AGPL-3.0-only`. LICENSE is the AGPL-3.0 text and NOTICE says AGPL-3.0;
+      neither says "or later". The copyright holder decides.
+- C2: osx-64 is built too (macos-15-intel runner), because Intel Macs are still in use.
+- C3: rattler-build rather than conda-build; it is in conda-forge and is installed by the
+      workflow with micromamba, as the environment is in ci.yml.
+- C4: macOS packages need macOS 13.3 or later: src/export3d.cc uses std::to_chars for
+      floating point, which libc++ makes available from 13.3 (the first CI run failed on both
+      macOS builds with "'to_chars' is unavailable: introduced in macOS 13.3"; linux-64 built and
+      passed its tests, including the 20-event run). recipe/variants.yaml raises the deployment
+      target through the C stdlib package.
 
 ## Versions (2026-10-22)
 

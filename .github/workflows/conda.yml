@@ -1,0 +1,97 @@
+name: conda
+
+# Builds the conda package (recipe/recipe.yaml) with rattler-build and runs its tests: info,
+# validate, and a 20-event electron run with the Geant4 data sets of the geant4 package.
+# Pull requests that touch the recipe, the build or the sources build it as a check. A tag
+# vX.Y.Z also uploads the packages to the anaconda.org channel named by the repository
+# variable ANACONDA_OWNER, with the secret ANACONDA_API_KEY of the "anaconda" environment;
+# without the variable nothing is uploaded.
+
+on:
+  pull_request:
+    paths:
+      - "recipe/**"
+      - ".github/workflows/conda.yml"
+      - "CMakeLists.txt"
+      - "src/**"
+      - "third_party/**"
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conda-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-64
+          - os: macos-latest
+            platform: osx-arm64
+          - os: macos-15-intel
+            platform: osx-64
+    steps:
+      - uses: actions/checkout@v7
+
+      # setup-micromamba only provides micromamba; rattler-build comes from conda-forge.
+      - name: Install micromamba
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          init-shell: none
+          cache-downloads: true
+          cache-environment: false
+
+      - name: Install rattler-build
+        run: '"$MAMBA_EXE" create --yes --name rattler --channel conda-forge rattler-build'
+
+      - name: Build and test the package
+        run: |
+          "$MAMBA_EXE" run --name rattler rattler-build build \
+            --recipe recipe/recipe.yaml --variant-config recipe/variants.yaml \
+            --channel conda-forge --output-dir output
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: conda-${{ matrix.platform }}
+          path: output/**/*.conda
+          if-no-files-found: error
+
+  upload:
+    if: startsWith(github.ref, 'refs/tags/v') && vars.ANACONDA_OWNER != ''
+    needs: build
+    runs-on: ubuntu-latest
+    environment: anaconda
+    steps:
+      - name: Install micromamba
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          init-shell: none
+          cache-environment: false
+
+      - name: Install rattler-build
+        run: '"$MAMBA_EXE" create --yes --name rattler --channel conda-forge rattler-build'
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: conda-*
+          path: dist
+          merge-multiple: true
+
+      - name: Upload to anaconda.org
+        env:
+          ANACONDA_API_KEY: ${{ secrets.ANACONDA_API_KEY }}
+        run: |
+          ls -l dist
+          "$MAMBA_EXE" run --name rattler rattler-build upload anaconda \
+            --owner "${{ vars.ANACONDA_OWNER }}" dist/*.conda

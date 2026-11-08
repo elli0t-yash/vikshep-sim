@@ -64,6 +64,28 @@ new versions in STATUS.md. A change of Geant4 or of the compiler changes simulat
 golden OIDs of `tests/golden/RUN_OIDS.txt` are keyed by the build and need re-recording
 (`tests/check_spec10_golden.py ... --record`).
 
+## Conda package
+
+`recipe/recipe.yaml` builds vikshep-sim as a conda package with
+[rattler-build](https://rattler.build), with Geant4 11.4.3 (noqt) pinned at build and run
+time (macOS packages need macOS 13.3 or later); `.github/workflows/conda.yml` builds and tests it on linux-64, osx-arm64 and osx-64
+for pull requests that touch the recipe, the build or the sources. The package is not
+published yet. Once a tag is uploaded to an anaconda.org channel, installing it pulls Geant4
+and its data sets from conda-forge, and activating the environment sets the data set
+variables:
+
+```sh
+micromamba create -n vikshep-sim -c <channel> -c conda-forge vikshep-sim
+micromamba activate vikshep-sim
+vikshep-sim info --json
+```
+
+Local build (needs rattler-build):
+
+```sh
+rattler-build build --recipe recipe/recipe.yaml --channel conda-forge --output-dir output
+```
+
 ## Geant4 data sets
 
 Geant4 reads its physics data (cross sections, EM tables, nuclear levels) from

@@ -1,0 +1,9 @@
+# Build variants for recipe/recipe.yaml (passed with --variant-config).
+# macOS: src/export3d.cc uses std::to_chars for floating point, which libc++ makes available
+# from macOS 13.3. The deployment target is raised to 13.3 through the C stdlib package
+# (macosx_deployment_target), which also adds the run constraint __osx >=13.3. See
+# https://conda-forge.org/docs/maintainer/knowledge_base#newer-c-features-with-old-sdk
+c_stdlib:
+  - macosx_deployment_target
+c_stdlib_version:
+  - "13.3"
