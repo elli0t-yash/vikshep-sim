@@ -10,6 +10,7 @@
 #include <string>
 #include <cstdint>
 #include <cstdlib>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -42,6 +43,7 @@
 #include "G4UImanager.hh"
 #include "G4UserEventAction.hh"
 #include "G4UserSteppingAction.hh"
+#include "G4VProcess.hh"
 #include "G4UserTrackingAction.hh"
 #include "G4VPhysicalVolume.hh"
 #include "G4VSensitiveDetector.hh"
@@ -409,7 +411,26 @@ struct TrackCollector {
   TrackSelector selector;              // at most kExportMaxTracksPerEvent of the primaries and the tracks at
                                        // or above the minimum energy, chosen while the event runs
   bool collecting = false;             // the track being tracked is stored in `selector`
+  std::uint32_t interactions = 0;      // interactions of every track of the event (docs/EXPORT3D.md, 7.4)
+  // Secondaries created by an interaction of a stored track, until they start tracking and their
+  // track id exists: (parent track id, index of the interaction in the parent's record). Keyed by the
+  // address of the G4Track only to find it again; the address never reaches a file.
+  std::unordered_map<const G4Track*, std::pair<std::int32_t, std::size_t>> pending;
 };
+
+// The id of a process, looked up once per process object and thread.
+std::uint16_t process_id_of(const G4VProcess* process)
+{
+  if (process == nullptr) {
+    return export_process_id("Unknown");
+  }
+  static thread_local std::unordered_map<const G4VProcess*, std::uint16_t> cache;
+  auto it = cache.find(process);
+  if (it == cache.end()) {
+    it = cache.emplace(process, export_process_id(process->GetProcessName())).first;
+  }
+  return it->second;
+}
 
 TrackCollector& thread_tracks()
 {
@@ -429,6 +450,17 @@ class ExportTrackingAction : public G4UserTrackingAction {
       return;
     }
     ++c.total;
+    const std::int32_t track_id = track->GetTrackID();
+    if (!c.pending.empty()) {
+      // A secondary of an interaction of a stored track: now it has its id.
+      const auto found = c.pending.find(track);
+      if (found != c.pending.end()) {
+        if (TrackRecord* parent = c.selector.find(found->second.first)) {
+          parent->interactions[found->second.second].secondaries.push_back(track_id);
+        }
+        c.pending.erase(found);
+      }
+    }
     const double energy_gev = track->GetKineticEnergy() / GeV;
     const bool primary = track->GetParentID() == 0;
     if (!primary && !(energy_gev >= min_energy_gev_)) {
@@ -441,8 +473,14 @@ class ExportTrackingAction : public G4UserTrackingAction {
     record.pdg = track->GetDefinition()->GetPDGEncoding();
     record.charge = static_cast<std::int32_t>(std::lround(track->GetDefinition()->GetPDGCharge()));
     record.kinetic_energy_start_gev = energy_gev;
+    record.particle = track->GetDefinition()->GetParticleName();
+    record.creator_process = track->GetCreatorProcess() != nullptr ? process_id_of(track->GetCreatorProcess()) : kNoProcess;
     const G4ThreeVector start = track->GetPosition();
     record.points.push_back({start.x() / mm, start.y() / mm, start.z() / mm});
+    record.t_ns.push_back(track->GetGlobalTime() / ns);
+    record.kinetic_energy_gev.push_back(energy_gev);
+    record.edep_gev.push_back(0.0);
+    record.process.push_back(kNoProcess);
     c.collecting = c.selector.begin_track(std::move(record));
   }
 
@@ -452,17 +490,50 @@ class ExportTrackingAction : public G4UserTrackingAction {
   double min_energy_gev_;
 };
 
-// Read-only: records where each step of a collected track ended.
+// Read-only: records where each step of a collected track ended, with time, energy, deposit and
+// the process that ended it, and the interactions of every track.
 class ExportSteppingAction : public G4UserSteppingAction {
  public:
   void UserSteppingAction(const G4Step* step) override
   {
     TrackCollector& c = thread_tracks();
-    if (!c.active || !c.collecting) {
+    if (!c.active) {
       return;
     }
-    const G4ThreeVector p = step->GetPostStepPoint()->GetPosition();
-    c.selector.add_point({p.x() / mm, p.y() / mm, p.z() / mm});
+    const G4StepPoint* post = step->GetPostStepPoint();
+    const G4VProcess* defining = post->GetProcessDefinedStep();
+    const std::uint16_t process = process_id_of(defining);
+    const auto* secondaries = step->GetSecondaryInCurrentStep();
+    const std::size_t created = secondaries != nullptr ? secondaries->size() : 0;
+    const bool interaction = is_interaction_step(export_process_name(process), created);
+    if (interaction) {
+      ++c.interactions;
+    }
+    if (!c.collecting) {
+      return;
+    }
+    const G4ThreeVector p = post->GetPosition();
+    const std::array<double, 3> point{p.x() / mm, p.y() / mm, p.z() / mm};
+    const double t_ns = post->GetGlobalTime() / ns;
+    const double edep_gev = step->GetTotalEnergyDeposit() / GeV;
+    c.selector.add_step(point, t_ns, post->GetKineticEnergy() / GeV, edep_gev, process);
+    if (!interaction) {
+      return;
+    }
+    InteractionRecord record;
+    record.t_ns = t_ns;
+    record.position_mm = point;
+    record.process = process;
+    record.edep_gev = edep_gev;
+    record.transferred_gev = edep_gev;
+    for (std::size_t k = 0; k < created; ++k) {
+      record.transferred_gev += (*secondaries)[k]->GetKineticEnergy() / GeV;
+    }
+    const std::size_t index = c.selector.add_interaction(std::move(record));
+    const std::int32_t parent_id = step->GetTrack()->GetTrackID();
+    for (std::size_t k = 0; k < created; ++k) {
+      c.pending[(*secondaries)[k]] = {parent_id, index};
+    }
   }
 };
 
@@ -494,7 +565,7 @@ class EventAction : public G4UserEventAction {
     thread_event_hits().clear();
     TrackCollector& collected = thread_tracks();
     if (collected.active) {
-      finished.trajectories = collected.selector.finish(collected.total);
+      finished.trajectories = collected.selector.finish(collected.total, collected.interactions);
       collected = TrackCollector();
     }
     try {

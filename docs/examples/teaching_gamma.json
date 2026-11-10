@@ -1,0 +1,14 @@
+{
+  "spec_version": "1.0",
+  "template": "layered_calorimeter",
+  "geometry": {
+    "layers": 10,
+    "absorber": {"material": "G4_Pb", "thickness_mm": 10},
+    "active": {"material": "G4_lAr", "thickness_mm": 5},
+    "transverse_mm": 100
+  },
+  "gun": {"particle": "gamma", "energy_GeV": 0.1},
+  "events": 5,
+  "seed": 7,
+  "sensitive": ["absorber", "active"]
+}

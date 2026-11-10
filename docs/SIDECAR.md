@@ -90,7 +90,7 @@ Checks a spec without running a simulation (rules: SPEC.md).
 | `--out <dir>` | the output folder to create. Required. It MUST NOT exist; its parent MUST exist. |
 | `--threads N` | worker threads, a positive integer. Default **1**. It never changes the output: the same spec and seed give the same `hits.arrow` and OID for any N (HITS.md, section 4). |
 | `--progress jsonl` | write machine-readable events to stdout (section 2). Default is `none`: stdout stays empty, in success and in failure; the exit code and stderr tell what happened. |
-| `--export-3d` | also write the two optional files `geometry.glb` and `trajectories.json` (EXPORT3D.md). Off by default; without it nothing about them exists anywhere in the output. It never changes `hits.arrow` or its OID. |
+| `--export-3d` | also write the two optional files `geometry.glb` and `trajectories.json` (EXPORT3D.md; `trajectories.json` is format 2, which adds time, energy, deposited energy, process names and a list of interactions so that a viewer can replay the stored event in physical time; format 1 files stay valid and a reader MUST accept both). Off by default; without it nothing about them exists anywhere in the output. It never changes `hits.arrow` or its OID. |
 | `--export-events N` | with `--export-3d`: export the tracks of the first N events, an integer from 1 to 100 (default 10). Without `--export-3d` it is a usage error. |
 | `--export-min-energy GeV` | with `--export-3d`: keep secondary tracks whose kinetic energy at creation is at least this, a number from 0 to 10000 in GeV (default 0.001). Primaries are always kept. Without `--export-3d` it is a usage error. |
 
@@ -228,7 +228,7 @@ MUST handle an unknown code by falling back to the exit code.
 | provenance.json | always | what produced the hits (5.1) |
 | run_summary.json | always | counts and the OID (5.2) |
 | geometry.glb | only with `--export-3d` | glTF 2.0 binary of the detector (EXPORT3D.md, section 2) |
-| trajectories.json | only with `--export-3d` | tracks of the first events (EXPORT3D.md, section 3) |
+| trajectories.json | only with `--export-3d` | tracks of the first events, with time, energy and interactions (EXPORT3D.md, sections 3 and 7; format 2) |
 
 The two optional files are requested by the command-line flag, not by the spec, so the
 spec, its canonical form and its `spec_oid` are the same with the flag on and off. Their
@@ -264,7 +264,7 @@ Two-space indentation, one final newline. Guaranteed keys:
 | spec_version | string | the spec's own version as written in the file |
 | tool_version | string |
 | writer_scheme | integer, version of the way `hits.arrow` is written (HITS.md, section 6.1) |
-| export_3d | only with `--export-3d`: `{"events": <events exported>, "files": [{"bytes": <int>, "file": <name>, "oid": <28 hex>}, ...], "format_version": "1.0", "max_tracks_per_event": 500, "min_energy_GeV": <number>}`, the files in the order `geometry.glb`, `trajectories.json`. The `oid` of a file is the OID rule applied to that file's bytes (EXPORT3D.md, section 5), unrelated to the OID of `hits.arrow`. With the flag off the key is absent and `provenance.json` is byte-identical to what it was before the export existed. |
+| export_3d | only with `--export-3d`: `{"events": <events exported>, "files": [{"bytes": <int>, "file": <name>, "oid": <28 hex>}, ...], "format_version": "2.0", "max_interactions_per_event": 2000, "max_tracks_per_event": 500, "min_energy_GeV": <number>}`, the files in the order `geometry.glb`, `trajectories.json`. The `oid` of a file is the OID rule applied to that file's bytes (EXPORT3D.md, section 5), unrelated to the OID of `hits.arrow`. With the flag off the key is absent and `provenance.json` is byte-identical to what it was before the export existed. |
 
 Further keys MAY be added. (Decision S5.)
 
@@ -361,7 +361,10 @@ next to its own output paths.
   `run_summary.json`, `export_3d` in `provenance.json`, the two optional files) is **additive**:
   new optional command-line options, new optional keys that are present only when the option is
   used, and a new use of an existing error code. `contract_version` stays **1**. A run without
-  `--export-3d` is unchanged in every byte of its output.
+  `--export-3d` is unchanged in every byte of its output. Format 2 of `trajectories.json` (Y12)
+  changes the content of an optional file and the value of `export_3d.format_version`, and adds
+  `export_3d.max_interactions_per_event`; all of them exist only with the flag, so the contract
+  version stays 1.
 
 ## 9. What the app may rely on, and what it must not
 

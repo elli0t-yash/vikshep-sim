@@ -8,6 +8,15 @@
   A local page to LOOK at the 3-D export of `vikshep-sim run --export-3d` (docs/EXPORT3D.md):
   geometry.glb and trajectories.json. It is not the Studio viewer.
 
+  Replay: with a trajectories.json of format 2 (docs/EXPORT3D.md section 7) the page replays the stored
+  event in physical time: a time slider with play, pause and step, a speed control (1x = 0.1 ns per
+  second, so an event of about 1 ns takes about 10 s), tracks that grow with time with a bright head,
+  interaction markers coloured by process (hover or click for details), volumes that glow with the
+  energy deposited so far, and a readout. It is a replay of an event that was already simulated, not a
+  live run. A format 1 file loads with the playback controls disabled. The logic that needs neither
+  three.js nor the DOM is in the script with id "replay-core" and is tested with Node
+  (tests/check_viewer_core.mjs).
+
   three.js 0.160.0 is loaded from the jsDelivr CDN (exact version, below), so the browser needs
   network access to cdn.jsdelivr.net. Nothing else is fetched and nothing is sent anywhere.
   Each of the seven three.js files has a Subresource Integrity hash (sha384) and crossorigin
@@ -51,6 +60,20 @@
   #warn { color: #b45309; }
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
   #drop { outline: 2px dashed #6b8bd6; outline-offset: -6px; }
+
+  #timebar { position: fixed; left: 322px; right: 12px; bottom: 12px; background: var(--panel); border: 1px solid var(--line);
+             border-radius: 8px; padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  #timebar input[type=range] { flex: 1 1 260px; min-width: 160px; }
+  #timebar button { min-width: 2.2em; }
+  #readout { position: fixed; top: 12px; right: 12px; width: 250px; background: var(--panel); border: 1px solid var(--line);
+             border-radius: 8px; padding: 8px 12px; font-variant-numeric: tabular-nums; }
+  #readout h2 { font-size: 13px; margin: 0 0 4px; }
+  #readout div.kv { display: flex; justify-content: space-between; gap: 8px; }
+  #tip, #inspect { white-space: pre; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; }
+  #tip { position: fixed; z-index: 5; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; max-width: 360px; white-space: pre-wrap; }
+  #inspect { white-space: pre-wrap; min-height: 3em; }
+  #energy-bar { height: 10px; border-radius: 3px; background: linear-gradient(to right, rgb(68,1,84), rgb(59,82,139), rgb(33,144,140), rgb(93,201,99), rgb(253,231,37)); margin: 4px 0 2px; }
+  @media (max-width: 800px) { #timebar { left: 12px; } #readout { top: auto; bottom: 90px; } }
 </style>
 </head>
 <body>
@@ -87,6 +110,25 @@
     </div>
   </fieldset>
 
+
+  <fieldset id="replay-box" hidden>
+    <legend>Replay and colours</legend>
+    <div id="format-note" class="note"></div>
+    <div class="row"><span>colour by</span>
+      <select id="colour-by"><option value="charge">charge</option><option value="energy">kinetic energy</option><option value="process">process</option></select></div>
+    <div id="energy-legend" hidden><div id="energy-bar"></div>
+      <div class="row" style="justify-content:space-between"><span>1 keV</span><span>log scale</span><span id="energy-top"></span></div></div>
+    <label><input type="checkbox" id="show-heads" checked> bright head on each moving track</label>
+    <label><input type="checkbox" id="show-markers" checked> interaction markers</label>
+    <label><input type="checkbox" id="show-glow" checked> volumes glow with the energy deposited</label>
+    <label><input type="checkbox" id="glow-all"> glow also volumes that are not sensitive</label>
+    <div class="note">interactions by process (uncheck to hide):</div>
+    <div id="proc-legend"></div>
+    <div class="note">hover a marker for its details, click to keep them here:</div>
+    <div id="inspect" class="note">none selected</div>
+    <div class="note">This is a replay of an event that was already simulated, not a live run.</div>
+  </fieldset>
+
   <fieldset id="volumes-box" hidden>
     <legend>Volumes</legend>
     <label><input type="checkbox" id="show-volumes" checked> show volumes</label>
@@ -109,6 +151,244 @@
   </fieldset>
   <div id="meta" class="note"></div>
 </div>
+
+
+<div id="timebar">
+  <button id="t-reset" title="back to t = 0">|&lt;</button>
+  <button id="t-back" title="step back (,)">&lt;</button>
+  <button id="play" title="play or pause (space)">play</button>
+  <button id="t-fwd" title="step forward (.)">&gt;</button>
+  <input id="time-slider" type="range" min="0" max="1000" step="1" value="1000" aria-label="time">
+  <select id="step-mode" title="what a step is"><option value="percent">step: 1 % of the event</option><option value="interaction">step: next interaction</option></select>
+  <label style="display:inline">speed <select id="speed"><option value="0.1">0.1x</option><option value="0.25">0.25x</option><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="5">5x</option><option value="10">10x</option><option value="25">25x</option></select></label>
+  <span id="speed-note" class="note">= 0.100 ns per second</span>
+</div>
+<div id="readout">
+  <h2>Replay readout</h2>
+  <div class="kv"><span>time</span><b id="r-time">-</b></div>
+  <div class="kv"><span>tracks alive</span><b id="r-alive">-</b></div>
+  <div class="kv"><span>deposited so far</span><b id="r-dep">-</b></div>
+  <div class="kv"><span>energy in flight</span><b id="r-fly">-</b></div>
+  <div class="kv"><span>left the world</span><b id="r-left">-</b></div>
+  <div class="kv"><span>primary energy</span><b id="r-prim">-</b></div>
+  <div class="kv"><span>interactions shown</span><b id="r-marks">-</b></div>
+  <div class="note">replay of a stored event</div>
+</div>
+<div id="tip" hidden></div>
+
+<script id="replay-core">
+// ReplayCore: the logic of the replay, without three.js and without the DOM, so that a test can run it
+// (tests/check_viewer_core.mjs reads this script out of the page). It reads trajectories.json of format
+// 1 or 2 (docs/EXPORT3D.md, sections 3, 6 and 7). Lengths mm, times ns, energies GeV.
+const ReplayCore = (function () {
+  'use strict';
+
+  // ---- reading the file (the rule of section 6: both majors, the first three numbers of a point are x, y, z)
+  function normalise(doc) {
+    const version = doc && doc.format_version;
+    if (version !== '1.0' && version !== '2.0') {
+      throw new Error('unknown trajectories.json format_version ' + JSON.stringify(version) + ' (this viewer reads 1.0 and 2.0)');
+    }
+    const rich = version === '2.0';
+    const events = doc.events.map((e) => ({
+      event_id: e.event_id,
+      tracks_total: e.tracks_total,
+      dropped_tracks: e.dropped_tracks,
+      dropped_interactions: rich ? e.dropped_interactions : 0,
+      interactions_total: rich ? e.interactions_total : 0,
+      tracks: e.tracks.map((t) => prepareTrack(t, rich)),
+      interactions: rich ? e.interactions : [],
+    }));
+    const processes = [];
+    if (rich) {
+      const seen = new Set();
+      for (const e of doc.events) {
+        for (const t of e.tracks) {
+          seen.add(t.creator_process); seen.add(t.end_process);
+          for (const p of t.points) if (p[6] !== null) seen.add(p[6]);
+        }
+        for (const i of e.interactions) seen.add(i.process);
+      }
+      processes.push(...[...seen].sort());
+    }
+    return { version, rich, events, processes, min_energy_GeV: doc.min_energy_GeV,
+             max_tracks_per_event: doc.max_tracks_per_event, max_interactions_per_event: doc.max_interactions_per_event,
+             spec_oid: doc.spec_oid, unit: doc.unit };
+  }
+
+  function prepareTrack(t, rich) {
+    const n = t.points.length;
+    const x = new Float64Array(n), y = new Float64Array(n), z = new Float64Array(n);
+    for (let i = 0; i < n; i++) { x[i] = t.points[i][0]; y[i] = t.points[i][1]; z[i] = t.points[i][2]; }
+    const out = { track_id: t.track_id, parent_id: t.parent_id, pdg: t.pdg, charge: t.charge, n, x, y, z,
+                  ke_start: t.kinetic_energy_start_GeV, particle: t.particle || null,
+                  creator_process: t.creator_process || null, end_process: t.end_process || null,
+                  t: null, ke: null, edep: null, proc: null };
+    if (rich) {
+      out.t = new Float64Array(n); out.ke = new Float64Array(n); out.edep = new Float64Array(n);
+      out.proc = new Array(n);
+      for (let i = 0; i < n; i++) {
+        const p = t.points[i];
+        out.t[i] = p[3]; out.ke[i] = p[4]; out.edep[i] = p[5]; out.proc[i] = p[6];
+      }
+    }
+    return out;
+  }
+
+  // ---- time
+  function eventDuration(ev) {
+    let tmax = 0;
+    for (const t of ev.tracks) if (t.t && t.t[t.n - 1] > tmax) tmax = t.t[t.n - 1];
+    return tmax;
+  }
+
+  // Index k of the last point with t[k] <= time (-1 if time is before the first point).
+  function lastPointAtOrBefore(t, time) {
+    let lo = 0, hi = t.length - 1, k = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (t[mid] <= time) { k = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    return k;
+  }
+
+  // A track is alive from its first point (t0 <= time) until its last (time < tEnd); at time >= tEnd it has ended.
+  function isAlive(tr, time) { return time >= tr.t[0] && time < tr.t[tr.n - 1]; }
+
+  // How far into step k (from point k-1 to point k) the track is, 0..1.
+  function stepFraction(tr, k, time) {
+    const a = tr.t[k - 1], b = tr.t[k];
+    if (time >= b) return 1;
+    if (time <= a) return 0;
+    return (time - a) / (b - a);
+  }
+
+  // Position of the head of a track at a time (an alive track is inside one step); null when not alive.
+  function headPosition(tr, time) {
+    if (!isAlive(tr, time)) return null;
+    const k0 = lastPointAtOrBefore(tr.t, time);
+    const k = k0 + 1;                     // the step in progress runs from point k0 to point k
+    const f = stepFraction(tr, k, time);
+    return [tr.x[k0] + f * (tr.x[k] - tr.x[k0]), tr.y[k0] + f * (tr.y[k] - tr.y[k0]), tr.z[k0] + f * (tr.z[k] - tr.z[k0])];
+  }
+
+  // Charged particles lose energy along the step; neutral ones (photons, neutrons) deposit at its end.
+  function depositFraction(tr, f) { return tr.charge !== 0 ? f : (f >= 1 ? 1 : 0); }
+
+  // Kinetic energy of a track at a time: ke[k0] minus the part of the step's deposit made so far. At the end of
+  // the step it drops to ke[k] (the rest went to secondaries or left the world). 0 when not alive.
+  function kineticEnergyAt(tr, time) {
+    if (!isAlive(tr, time)) return 0;
+    const k0 = lastPointAtOrBefore(tr.t, time);
+    const k = k0 + 1;
+    const f = stepFraction(tr, k, time);
+    return tr.ke[k0] - tr.edep[k] * depositFraction(tr, f);
+  }
+
+  // ---- volumes (from geometry.glb), to say where a step deposited its energy
+  // volumes: [{kind:'box', min:[x,y,z], max:[x,y,z]} | {kind:'tube', rin, rout, zhalf}] in mm.
+  const EPS_MM = 1e-3;
+  function findVolume(volumes, p) {
+    for (let i = 0; i < volumes.length; i++) {
+      const v = volumes[i];
+      if (v.kind === 'box') {
+        if (p[0] >= v.min[0] - EPS_MM && p[0] <= v.max[0] + EPS_MM && p[1] >= v.min[1] - EPS_MM && p[1] <= v.max[1] + EPS_MM &&
+            p[2] >= v.min[2] - EPS_MM && p[2] <= v.max[2] + EPS_MM) return i;
+      } else {
+        const r = Math.hypot(p[0], p[1]);
+        if (r >= v.rin - EPS_MM && r <= v.rout + EPS_MM && Math.abs(p[2]) <= v.zhalf + EPS_MM) return i;
+      }
+    }
+    return -1;
+  }
+
+  // For every step of every track, the volume of the midpoint of the step (EXPORT3D.md 7.3), or -1.
+  function assignVolumes(ev, volumes) {
+    for (const tr of ev.tracks) {
+      tr.vol = new Int32Array(tr.n).fill(-1);
+      if (!tr.edep) continue;
+      for (let k = 1; k < tr.n; k++) {
+        if (tr.edep[k] <= 0) continue;
+        tr.vol[k] = findVolume(volumes, [(tr.x[k - 1] + tr.x[k]) / 2, (tr.y[k - 1] + tr.y[k]) / 2, (tr.z[k - 1] + tr.z[k]) / 2]);
+      }
+    }
+  }
+
+  // ---- what has happened by a time
+  // Returns {alive, deposited, inFlight, left, byVolume}: tracks alive, energy deposited so far (all steps,
+  // any volume), kinetic energy of the alive tracks, kinetic energy that has left the world, and the deposit per volume.
+  function stateAt(ev, time, nVolumes) {
+    const byVolume = new Float64Array(nVolumes || 0);
+    let alive = 0, deposited = 0, inFlight = 0, left = 0;
+    for (const tr of ev.tracks) {
+      if (time < tr.t[0]) continue;
+      const lastStep = Math.min(lastPointAtOrBefore(tr.t, time), tr.n - 1);
+      // completed steps 1..lastStep deposit fully; the step in progress, if any, in part
+      for (let k = 1; k <= lastStep; k++) {
+        deposited += tr.edep[k];
+        if (tr.vol && tr.vol[k] >= 0) byVolume[tr.vol[k]] += tr.edep[k];
+      }
+      if (time < tr.t[tr.n - 1]) {
+        alive++;
+        const k = lastStep + 1;
+        const part = tr.edep[k] * depositFraction(tr, stepFraction(tr, k, time));
+        deposited += part;
+        if (tr.vol && tr.vol[k] >= 0) byVolume[tr.vol[k]] += part;
+        inFlight += kineticEnergyAt(tr, time);
+      } else if (tr.end_process === 'Transportation') {
+        left += tr.ke[tr.n - 1];
+      }
+    }
+    return { alive, deposited, inFlight, left, byVolume };
+  }
+
+  // Index of the first interaction with t_ns > time (the interactions are in ascending t_ns): how many have happened.
+  function interactionsBy(interactions, time) {
+    let lo = 0, hi = interactions.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (interactions[mid].t_ns <= time) lo = mid + 1; else hi = mid; }
+    return lo;
+  }
+
+  // ---- colours
+  const PROCESS_COLOURS = {
+    compt: '#e69f00', phot: '#d55e00', conv: '#cc79a7', annihil: '#009e73', eBrem: '#56b4e9',
+    eIoni: '#f0e442', muIoni: '#f0e442', hIoni: '#f0e442', ionIoni: '#f0e442', Rayl: '#999999',
+    Decay: '#0072b2', Transportation: '#6b7280', msc: '#6b7280',
+  };
+  const FALLBACK = ['#8c564b', '#17becf', '#bcbd22', '#e377c2', '#7f7f7f', '#aec7e8', '#98df8a', '#ff9896'];
+  function processColourMap(names) {
+    const map = {}; let next = 0;
+    for (const n of names) map[n] = PROCESS_COLOURS[n] || FALLBACK[next++ % FALLBACK.length];
+    return map;
+  }
+
+  // Kinetic energy on a log scale, 1 keV (dark) to the top of the scale (bright).
+  const STOPS = [[68, 1, 84], [59, 82, 139], [33, 144, 140], [93, 201, 99], [253, 231, 37]];
+  const E_LOW_GEV = 1e-6;
+  function energyFraction(ke, top) {
+    if (!(ke > E_LOW_GEV)) return 0;
+    const f = (Math.log10(ke) - Math.log10(E_LOW_GEV)) / (Math.log10(top) - Math.log10(E_LOW_GEV));
+    return Math.min(1, Math.max(0, f));
+  }
+  function energyColour(ke, top) {
+    const f = energyFraction(ke, top) * (STOPS.length - 1);
+    const i = Math.min(STOPS.length - 2, Math.floor(f)), u = f - i;
+    return STOPS[i].map((c, j) => (c + u * (STOPS[i + 1][j] - c)) / 255);
+  }
+
+  function formatEnergy(gev) {
+    const a = Math.abs(gev);
+    if (a >= 1) return gev.toFixed(3) + ' GeV';
+    if (a >= 1e-3) return (gev * 1e3).toFixed(3) + ' MeV';
+    return (gev * 1e6).toFixed(1) + ' keV';
+  }
+
+  return { normalise, eventDuration, lastPointAtOrBefore, isAlive, stepFraction, headPosition, kineticEnergyAt, findVolume,
+           assignVolumes, stateAt, interactionsBy, processColourMap, energyColour, energyFraction, formatEnergy,
+           depositFraction };
+})();
+if (typeof globalThis !== 'undefined') globalThis.ReplayCore = ReplayCore;
+</script>
 
 <script type="importmap">
 { "imports": {
@@ -183,7 +463,6 @@ const tracks = new THREE.Group();           // the chosen event's trajectories
 scene.add(volumes, tracks);
 
 let geometry = null;      // {extras, nodes: [{object, role, sensitive}]}
-let trajectories = null;  // parsed trajectories.json
 let radius = 1;           // radius of the sphere around the whole geometry, in metres, for the camera
 let centre = new THREE.Vector3();   // centre of that sphere
 const lineMaterials = [];  // LineMaterial needs the window size in pixels
@@ -198,7 +477,7 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 resize();
-renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+renderer.setAnimationLoop(() => { tick(); controls.update(); renderer.render(scene, camera); });
 
 // Frames the whole geometry: the camera looks at the centre of the sphere around everything and is
 // far enough for that sphere to fit the narrower of the two fields of view.
@@ -277,102 +556,454 @@ function buildRoleToggles() {
   applyVolumeToggles();
 }
 
-// ---------------------------------------------------------------- trajectories
-const COLOURS = { primary: 0xff2bd6, neg: 0xd1342f, pos: 0x2b6fd6, neutral: 0x8a8f98 };
+// ---------------------------------------------------------------- trajectories and replay
+const Core = ReplayCore;                      // the logic that needs neither three.js nor the DOM (tested separately)
+const CHARGE_COLOURS = { primary: 0xff2bd6, neg: 0xd1342f, pos: 0x2b6fd6, neutral: 0x8a8f98 };
 const kindOf = (t) => (t.parent_id === 0 ? 'primary' : t.charge < 0 ? 'neg' : t.charge > 0 ? 'pos' : 'neutral');
+const SPEED_BASE_NS_PER_S = 0.1;              // speed 1x: an event of about 1 ns takes about 10 s
 
-// One LineSegments2 per kind (thick lines: WebGL's own lines are always one pixel wide), drawn after
-// the volumes with the depth test off, so the volumes never hide a track.
-function lineObject(kind, positions, width, opacity) {
-  const g = new LineSegmentsGeometry();
-  g.setPositions(positions);
-  const m = new LineMaterial({ color: COLOURS[kind], linewidth: width, transparent: true, opacity, depthTest: false, depthWrite: false });
-  m.resolution.set(window.innerWidth, window.innerHeight);
-  lineMaterials.push(m);
-  const o = new LineSegments2(g, m);
-  o.renderOrder = kind === 'primary' ? 12 : kind === 'neutral' ? 10 : 11;
+let tdata = null;            // normalised trajectories.json (ReplayCore.normalise)
+let ev = null;               // the event on show
+let volumeShapes = [];       // geometry.glb volumes in mm, for the glow (index = geometry.nodes index)
+let processColours = {};     // process name -> '#rrggbb'
+const clock = { t: 0, tEnd: 0, playing: false, last: 0, dirty: true };
+let groups = [];             // thick line groups: {segs, full, pos, col, geo, obj, trackSegs, hi}
+let headPoints = null, markerPoints = null, vertexPoints = null;
+let markerList = [];         // the interactions on show (filtered by the legend), ascending t_ns
+let markerShown = 0;
+let glowMax = 0;             // deposit in the most-lit volume at the end of the event, GeV
+let topEnergy = 1;           // top of the colour scale for kinetic energy, GeV
+const fadedTrack = new Map();
+const bgColour = () => (window.matchMedia('(prefers-color-scheme: dark)').matches ? new THREE.Color(0x14171d) : new THREE.Color(0xf4f5f7));
+
+let spriteTexture = null;
+function sprite() {          // a round dot for points
+  if (spriteTexture) return spriteTexture;
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  g.beginPath(); g.arc(32, 32, 30, 0, 2 * Math.PI); g.fillStyle = '#fff'; g.fill();
+  spriteTexture = new THREE.CanvasTexture(c);
+  return spriteTexture;
+}
+function pointsObject(capacity, size, order, vertexColors = true) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3 * Math.max(capacity, 1)), 3));
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(3 * Math.max(capacity, 1)), 3));
+  g.setDrawRange(0, 0);
+  const m = new THREE.PointsMaterial({ size, sizeAttenuation: false, vertexColors, map: sprite(), alphaTest: 0.4, transparent: true, depthTest: false, depthWrite: false });
+  const o = new THREE.Points(g, m);
+  o.renderOrder = order; o.frustumCulled = false;
   return o;
 }
 
-function showEvent(index) {
-  currentEvent = index;
-  for (const o of tracks.children) { o.geometry.dispose(); o.material.dispose(); lineMaterials.splice(lineMaterials.indexOf(o.material), 1); }
-  tracks.clear();
-  const event = trajectories.events[index];
-  const scale = 1 / ((geometry && geometry.extras.mm_per_unit) || 1000);   // mm -> glb units (m)
-  const width = Number($('track-width').value);
-  const chargedOnly = $('charged-only').checked, primaryOnly = $('primary-only').checked;
-  const dim = $('dim-neutral').checked;
-  const segs = { primary: [], neg: [], pos: [], neutral: [] };
-  const pts = [], ptsColour = [];
-  const count = { neg: 0, pos: 0, neutral: 0, primary: 0 };
-  for (const t of event.tracks) {
-    const kind = kindOf(t);
-    count[t.charge < 0 ? 'neg' : t.charge > 0 ? 'pos' : 'neutral']++;
-    if (t.parent_id === 0) count.primary++;
-    if ((chargedOnly && t.charge === 0) || (primaryOnly && t.parent_id !== 0)) continue;
-    const c = new THREE.Color(COLOURS[kind]);
-    for (let i = 0; i < t.points.length; i++) {
-      const p = t.points[i];
-      pts.push(p[0] * scale, p[1] * scale, p[2] * scale);
-      ptsColour.push(c.r, c.g, c.b);
-      if (i > 0) {
-        const q = t.points[i - 1];
-        segs[kind].push(q[0] * scale, q[1] * scale, q[2] * scale, p[0] * scale, p[1] * scale, p[2] * scale);
-      }
+function colourMode() { return $('colour-by').value; }
+function trackColour(tr, k, mode) {       // colour at point k of a track: [r, g, b] 0..1
+  if (mode === 'energy') {
+    const ke = tr.ke ? tr.ke[k] : tr.ke_start;
+    return Core.energyColour(ke, topEnergy);
+  }
+  if (mode === 'process' && tr.proc) {
+    const name = k === 0 ? tr.creator_process : tr.proc[k];
+    const c = new THREE.Color(processColours[name] || '#888888'); return [c.r, c.g, c.b];
+  }
+  const c = new THREE.Color(CHARGE_COLOURS[kindOf(tr)]); return [c.r, c.g, c.b];
+}
+function segmentColour(tr, k, mode, which) {   // which 0: start of the segment (point k-1), 1: end (point k)
+  if (mode === 'process' && tr.proc) {       // the colour of the process that ended the step, along the whole step
+    const c = new THREE.Color(processColours[tr.proc[k]] || '#888888'); return [c.r, c.g, c.b];
+  }
+  return trackColour(tr, which === 0 ? k - 1 : k, mode);
+}
+
+function disposeScene() {
+  for (const o of [...tracks.children]) {
+    tracks.remove(o);
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) { const i = lineMaterials.indexOf(o.material); if (i >= 0) lineMaterials.splice(i, 1); o.material.dispose(); }
+  }
+  groups = []; headPoints = markerPoints = vertexPoints = null; fadedTrack.clear();
+}
+
+function lineGroup(name, list, width, opacity) {
+  const m = list.length;
+  const full = new Float32Array(6 * Math.max(m, 1));
+  const scale = 1 / ((geometry && geometry.extras.mm_per_unit) || 1000);          // mm -> glb units (m)
+  const trackSegs = new Map();
+  list.forEach((s, i) => {
+    const tr = s.tr, k = s.k;
+    full.set([tr.x[k - 1] * scale, tr.y[k - 1] * scale, tr.z[k - 1] * scale, tr.x[k] * scale, tr.y[k] * scale, tr.z[k] * scale], 6 * i);
+    if (!trackSegs.has(tr)) trackSegs.set(tr, []);
+    trackSegs.get(tr).push(i);
+  });
+  const geo = new LineSegmentsGeometry();
+  geo.setPositions(full.slice());
+  geo.setColors(new Float32Array(6 * Math.max(m, 1)));
+  const mat = new LineMaterial({ vertexColors: true, linewidth: width, transparent: true, opacity, depthTest: false, depthWrite: false });
+  mat.resolution.set(window.innerWidth, window.innerHeight);
+  lineMaterials.push(mat);
+  const obj = new LineSegments2(geo, mat);
+  obj.frustumCulled = false;
+  obj.renderOrder = name === 'primary' ? 12 : name === 'neutral' ? 10 : 11;
+  const g = { name, segs: list, full, pos: geo.attributes.instanceStart.data, col: geo.attributes.instanceColorStart.data, geo, obj, trackSegs, hi: 0, scale };
+  tracks.add(obj);
+  return g;
+}
+
+function fadeFactor(tr, time) { return ev && tdata.rich && time >= tr.t[tr.n - 1] ? 0.45 : 0; }   // stopped tracks fade slightly
+function paintTrack(g, tr, time) {
+  const mode = colourMode();
+  const mix = fadeFactor(tr, time), bg = bgColour();
+  const arr = g.col.array;
+  for (const i of g.trackSegs.get(tr)) {
+    const s = g.segs[i];
+    for (let w = 0; w < 2; w++) {
+      const c = segmentColour(tr, s.k, mode, w);
+      arr[6 * i + 3 * w] = c[0] + (bg.r - c[0]) * mix;
+      arr[6 * i + 3 * w + 1] = c[1] + (bg.g - c[1]) * mix;
+      arr[6 * i + 3 * w + 2] = c[2] + (bg.b - c[2]) * mix;
     }
   }
-  if (segs.neutral.length) tracks.add(lineObject('neutral', segs.neutral, width * 0.7, dim ? 0.18 : 0.9));
-  if (segs.neg.length) tracks.add(lineObject('neg', segs.neg, width, 0.95));
-  if (segs.pos.length) tracks.add(lineObject('pos', segs.pos, width, 0.95));
-  if (segs.primary.length) tracks.add(lineObject('primary', segs.primary, width * 2, 1));
-  if (pts.length) {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(ptsColour, 3));
-    const points = new THREE.Points(g, new THREE.PointsMaterial({ size: 4, sizeAttenuation: false, vertexColors: true, depthTest: false, depthWrite: false }));
-    points.renderOrder = 13;
-    points.visible = $('show-points').checked;
-    points.userData.isPoints = true;
-    tracks.add(points);
+  g.col.needsUpdate = true;
+  fadedTrack.set(tr, mix > 0);
+}
+
+function buildEvent(index) {
+  disposeScene();
+  ev = tdata.events[index];
+  currentEvent = index;
+  const rich = tdata.rich;
+  if (rich && geometry) Core.assignVolumes(ev, volumeShapes);
+  clock.tEnd = rich ? Core.eventDuration(ev) : 0;
+  topEnergy = Math.max(1e-6 * 10, ...ev.tracks.map((t) => (t.ke ? Math.max(...t.ke) : t.ke_start)));
+  const chargedOnly = $('charged-only').checked, primaryOnly = $('primary-only').checked, dim = $('dim-neutral').checked;
+  const width = Number($('track-width').value);
+  const lists = { neutral: [], charged: [], primary: [] };
+  const count = { neg: 0, pos: 0, neutral: 0, primary: 0 };
+  for (const tr of ev.tracks) {
+    count[tr.charge < 0 ? 'neg' : tr.charge > 0 ? 'pos' : 'neutral']++;
+    if (tr.parent_id === 0) count.primary++;
+    if ((chargedOnly && tr.charge === 0) || (primaryOnly && tr.parent_id !== 0)) continue;
+    const group = tr.parent_id === 0 ? 'primary' : tr.charge === 0 ? 'neutral' : 'charged';
+    for (let k = 1; k < tr.n; k++) {
+      if (tr.x[k] === tr.x[k - 1] && tr.y[k] === tr.y[k - 1] && tr.z[k] === tr.z[k - 1]) continue;   // a zero-length step has no line
+      lists[group].push({ tr, k });
+    }
   }
+  if (rich) for (const key of Object.keys(lists)) lists[key].sort((a, b) => a.tr.t[a.k - 1] - b.tr.t[b.k - 1]);
+  if (lists.neutral.length) groups.push(lineGroup('neutral', lists.neutral, width * 0.7, dim ? 0.18 : 0.9));
+  if (lists.charged.length) groups.push(lineGroup('charged', lists.charged, width, 0.95));
+  if (lists.primary.length) groups.push(lineGroup('primary', lists.primary, width * 2, 1));
+
+  // the bright heads, one per alive track
+  headPoints = pointsObject(ev.tracks.length, 11, 15);
+  tracks.add(headPoints);
+  // all vertices revealed so far (optional)
+  const nPts = ev.tracks.reduce((a, t) => a + t.n, 0);
+  vertexPoints = pointsObject(nPts, 4, 13);
+  vertexPoints.visible = $('show-points').checked;
+  tracks.add(vertexPoints);
+
+  // interactions
+  buildMarkers();
+
   $('n-primary').textContent = count.primary; $('n-neg').textContent = count.neg;
   $('n-pos').textContent = count.pos; $('n-neu').textContent = count.neutral;
-  const hasPrimary = count.primary;
-  $('event-info').textContent = event.tracks.length + ' tracks in the file of ' + event.tracks_total + ' created (' +
-    hasPrimary + ' primary)';
-  $('warn').textContent = event.dropped_tracks > 0
-    ? event.dropped_tracks + ' tracks of this event are not in the file (secondaries below ' +
-      trajectories.min_energy_GeV + ' GeV, or beyond the ' + trajectories.max_tracks_per_event + '-track cap). ' +
-      'The export is a subset, for viewing.'
-    : '';
+  $('event-info').textContent = ev.tracks.length + ' tracks in the file of ' + ev.tracks_total + ' created (' + count.primary + ' primary)' +
+    (rich ? '; ' + ev.interactions.length + ' interactions in the file of ' + ev.interactions_total : '');
+  const warn = [];
+  if (ev.dropped_tracks > 0) {
+    warn.push(ev.dropped_tracks + ' tracks of this event are not in the file (secondaries below ' + tdata.min_energy_GeV +
+      ' GeV, or beyond the ' + tdata.max_tracks_per_event + '-track cap). The export is a subset, for viewing.' +
+      (rich ? ' The energy in flight is a lower bound.' : ''));
+  }
+  if (rich && ev.dropped_interactions > 0) {
+    warn.push(ev.dropped_interactions + ' interactions are not in the file (tracks not kept, or beyond the ' +
+      tdata.max_interactions_per_event + '-interaction cap).');
+  }
+  $('warn').textContent = warn.join(' ');
   tracks.visible = $('show-tracks').checked;
+  glowMax = 0;
+  if (rich && geometry && volumeShapes.length) {
+    const fin = Core.stateAt(ev, clock.tEnd + 1, volumeShapes.length).byVolume;
+    for (let i = 0; i < volumeShapes.length; i++) if (glowEligible(i)) glowMax = Math.max(glowMax, fin[i]);
+  }
+  buildLegend();
+  clock.t = rich && clock.playing ? 0 : clock.tEnd;
+  clock.dirty = true;
+  repaintAll();
+}
+
+function repaintAll() {
+  const time = tdata.rich ? clock.t : Infinity;
+  for (const g of groups) for (const tr of g.trackSegs.keys()) paintTrack(g, tr, time);
+}
+
+function glowEligible(i) { return geometry && (geometry.nodes[i].sensitive || $('glow-all').checked); }
+
+// ---- per frame
+function updateFrame() {
+  const rich = tdata.rich, time = rich ? clock.t : Infinity;
+  for (const g of groups) {
+    if (!rich) { g.geo.instanceCount = g.segs.length; continue; }
+    let hi = 0;
+    { let lo = 0, up = g.segs.length; while (lo < up) { const mid = (lo + up) >> 1; if (g.segs[mid].tr.t[g.segs[mid].k - 1] < time) lo = mid + 1; else up = mid; } hi = lo; }
+    const p = g.pos.array;
+    for (let i = 0; i < hi; i++) {
+      const s = g.segs[i], f = Core.stepFraction(s.tr, s.k, time);
+      if (f >= 1) { p[6 * i + 3] = g.full[6 * i + 3]; p[6 * i + 4] = g.full[6 * i + 4]; p[6 * i + 5] = g.full[6 * i + 5]; }
+      else {
+        p[6 * i + 3] = g.full[6 * i] + f * (g.full[6 * i + 3] - g.full[6 * i]);
+        p[6 * i + 4] = g.full[6 * i + 1] + f * (g.full[6 * i + 4] - g.full[6 * i + 1]);
+        p[6 * i + 5] = g.full[6 * i + 2] + f * (g.full[6 * i + 5] - g.full[6 * i + 2]);
+      }
+    }
+    g.geo.instanceCount = hi;
+    g.pos.needsUpdate = true;
+    for (const tr of g.trackSegs.keys()) {
+      const faded = fadeFactor(tr, time) > 0;
+      if (fadedTrack.get(tr) !== faded) paintTrack(g, tr, time);
+    }
+  }
+  const scale = 1 / ((geometry && geometry.extras.mm_per_unit) || 1000);
+  const primaryOnly = $('primary-only').checked, chargedOnly = $('charged-only').checked, headsOn = $('show-heads').checked;
+  // heads
+  if (headPoints) {
+    const pa = headPoints.geometry.attributes.position.array, ca = headPoints.geometry.attributes.color.array;
+    let n = 0;
+    if (rich && headsOn) {
+      const mode = colourMode();
+      for (const tr of ev.tracks) {
+        if (primaryOnly && tr.parent_id !== 0) continue;
+        if (chargedOnly && tr.charge === 0) continue;
+        const h = Core.headPosition(tr, time);
+        if (!h) continue;
+        pa[3 * n] = h[0] * scale; pa[3 * n + 1] = h[1] * scale; pa[3 * n + 2] = h[2] * scale;
+        const k = Core.lastPointAtOrBefore(tr.t, time) + 1;
+        const c = mode === 'energy' ? Core.energyColour(Core.kineticEnergyAt(tr, time), topEnergy) : segmentColour(tr, k, mode, 1);
+        ca[3 * n] = c[0] + (1 - c[0]) * 0.7; ca[3 * n + 1] = c[1] + (1 - c[1]) * 0.7; ca[3 * n + 2] = c[2] + (1 - c[2]) * 0.7;   // brighter than the track
+        n++;
+      }
+    }
+    headPoints.geometry.setDrawRange(0, n);
+    headPoints.geometry.attributes.position.needsUpdate = true; headPoints.geometry.attributes.color.needsUpdate = true;
+  }
+  // interaction markers: those that have happened
+  if (markerPoints) {
+    markerShown = rich ? Core.interactionsBy(markerList, time) : 0;
+    markerPoints.geometry.setDrawRange(0, markerShown);
+    markerPoints.visible = $('show-markers').checked;
+  }
+  // vertices revealed so far
+  if (vertexPoints && vertexPoints.visible) {
+    const pa = vertexPoints.geometry.attributes.position.array, ca = vertexPoints.geometry.attributes.color.array;
+    const mode = colourMode();
+    let n = 0;
+    for (const tr of ev.tracks) {
+      if (primaryOnly && tr.parent_id !== 0) continue;
+      if (chargedOnly && tr.charge === 0) continue;
+      const last = rich ? Core.lastPointAtOrBefore(tr.t, time) : tr.n - 1;
+      for (let k = 0; k <= last; k++) {
+        pa[3 * n] = tr.x[k] * scale; pa[3 * n + 1] = tr.y[k] * scale; pa[3 * n + 2] = tr.z[k] * scale;
+        const c = trackColour(tr, k, mode);
+        ca[3 * n] = c[0]; ca[3 * n + 1] = c[1]; ca[3 * n + 2] = c[2];
+        n++;
+      }
+    }
+    vertexPoints.geometry.setDrawRange(0, n);
+    vertexPoints.geometry.attributes.position.needsUpdate = true; vertexPoints.geometry.attributes.color.needsUpdate = true;
+  }
+  // slabs glow with the energy deposited so far; the readout
+  if (rich) {
+    const st = Core.stateAt(ev, time, volumeShapes.length);
+    if (geometry) {
+      geometry.nodes.forEach((n, i) => {
+        const m = n.object.material;
+        const f = glowMax > 0 && glowEligible(i) ? Math.min(1, st.byVolume[i] / glowMax) : 0;
+        const on = $('show-glow').checked;
+        m.emissive.set(0xffb020);
+        m.emissiveIntensity = on ? 1.8 * f : 0;
+        const base = Number($('volume-opacity').value);
+        m.opacity = on ? base + (0.8 - base) * f * (base < 0.8 ? 1 : 0) : base;
+      });
+    }
+    $('r-time').textContent = clock.t.toFixed(4) + ' ns of ' + clock.tEnd.toFixed(4) + ' ns';
+    $('r-alive').textContent = st.alive + ' of ' + ev.tracks.length;
+    $('r-dep').textContent = Core.formatEnergy(st.deposited);
+    $('r-fly').textContent = Core.formatEnergy(st.inFlight) + (ev.dropped_tracks > 0 ? ' (lower bound)' : '');
+    $('r-left').textContent = Core.formatEnergy(st.left);
+    const prim = ev.tracks.find((t) => t.parent_id === 0);
+    $('r-prim').textContent = prim ? Core.formatEnergy(prim.ke_start) : '-';
+    $('r-marks').textContent = markerShown + ' of ' + markerList.length;
+  }
+  $('time-slider').value = clock.tEnd > 0 ? Math.round(1000 * clock.t / clock.tEnd) : 0;
+}
+
+// ---- interaction markers, legend, inspection
+function buildMarkers() {
+  if (markerPoints) { tracks.remove(markerPoints); markerPoints.geometry.dispose(); markerPoints.material.dispose(); markerPoints = null; }
+  markerList = [];
+  if (!tdata.rich) return;
+  const off = new Set([...document.querySelectorAll('#proc-legend input')].filter((c) => !c.checked).map((c) => c.dataset.proc));
+  markerList = ev.interactions.filter((i) => !off.has(i.process));
+  markerPoints = pointsObject(markerList.length, 10, 14);
+  const pa = markerPoints.geometry.attributes.position.array, ca = markerPoints.geometry.attributes.color.array;
+  const scale = 1 / ((geometry && geometry.extras.mm_per_unit) || 1000);
+  markerList.forEach((i, n) => {
+    pa[3 * n] = i.position_mm[0] * scale; pa[3 * n + 1] = i.position_mm[1] * scale; pa[3 * n + 2] = i.position_mm[2] * scale;
+    const c = new THREE.Color(processColours[i.process] || '#888888');
+    ca[3 * n] = c.r; ca[3 * n + 1] = c.g; ca[3 * n + 2] = c.b;
+  });
+  tracks.add(markerPoints);
+  markerPoints.visible = $('show-markers').checked;
+}
+
+function buildLegend() {
+  const box = $('proc-legend');
+  const old = new Set([...box.querySelectorAll('input')].filter((c) => !c.checked).map((c) => c.dataset.proc));
+  box.innerHTML = '';
+  if (!tdata.rich) return;
+  const counts = {};
+  for (const i of ev.interactions) counts[i.process] = (counts[i.process] || 0) + 1;
+  for (const name of Object.keys(counts).sort()) {
+    const label = document.createElement('label');
+    label.innerHTML = '<input type="checkbox" data-proc="' + name + '"' + (old.has(name) ? '' : ' checked') + '> <span class="swatch" style="background:' +
+      (processColours[name] || '#888') + '"></span>' + name + ' (' + counts[name] + ')';
+    box.appendChild(label);
+  }
+  box.querySelectorAll('input').forEach((c) => c.addEventListener('change', () => { buildMarkers(); clock.dirty = true; }));
+  $('energy-legend').hidden = colourMode() !== 'energy';
+  $('energy-top').textContent = Core.formatEnergy(topEnergy);
+}
+
+function describeInteraction(i) {
+  const byId = new Map(ev.tracks.map((t) => [t.track_id, t]));
+  const tr = byId.get(i.track_id);
+  const sec = i.secondaries.map((id) => { const s = byId.get(id); return s ? s.particle + ' #' + id + ' (' + Core.formatEnergy(s.ke_start) + ')' : '#' + id + ' (not in the file)'; });
+  return 'process ' + i.process + '\ntime ' + i.t_ns.toFixed(6) + ' ns\ntrack #' + i.track_id + (tr ? ' (' + tr.particle + ')' : '') +
+    '\nposition ' + i.position_mm.map((v) => v.toFixed(3)).join(', ') + ' mm\nenergy deposited ' + Core.formatEnergy(i.edep_GeV) +
+    '\nsecondaries ' + (sec.length ? sec.join(', ') : 'none');
+}
+
+const tip = $('tip');
+const pointer = { x: 0, y: 0, inside: false };
+function nearestMarker() {
+  if (!markerPoints || !markerShown) return -1;
+  const rect = renderer.domElement.getBoundingClientRect();
+  const pa = markerPoints.geometry.attributes.position.array;
+  const v = new THREE.Vector3();
+  let best = -1, bd = 10 * 10;
+  for (let n = 0; n < markerShown; n++) {
+    v.set(pa[3 * n], pa[3 * n + 1], pa[3 * n + 2]).project(camera);
+    if (v.z > 1) continue;
+    const sx = rect.left + (v.x * 0.5 + 0.5) * rect.width, sy = rect.top + (-v.y * 0.5 + 0.5) * rect.height;
+    const d = (sx - pointer.x) ** 2 + (sy - pointer.y) ** 2;
+    if (d < bd) { bd = d; best = n; }
+  }
+  return best;
+}
+renderer.domElement.addEventListener('pointermove', (e) => {
+  pointer.x = e.clientX; pointer.y = e.clientY;
+  const n = nearestMarker();
+  if (n < 0) { tip.hidden = true; return; }
+  tip.textContent = describeInteraction(markerList[n]);
+  tip.style.left = Math.min(window.innerWidth - 260, e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px';
+  tip.hidden = false;
+});
+renderer.domElement.addEventListener('pointerleave', () => { tip.hidden = true; });
+renderer.domElement.addEventListener('click', (e) => {
+  pointer.x = e.clientX; pointer.y = e.clientY;
+  const n = nearestMarker();
+  if (n >= 0) $('inspect').textContent = describeInteraction(markerList[n]);
+});
+
+// ---- the controls
+function setPlaying(on) {
+  clock.playing = on && tdata && tdata.rich;
+  if (clock.playing && clock.t >= clock.tEnd) clock.t = 0;
+  clock.last = performance.now();
+  $('play').textContent = clock.playing ? 'pause' : 'play';
+}
+function seek(time) { clock.t = Math.min(clock.tEnd, Math.max(0, time)); clock.dirty = true; }
+function stepBy(dir) {
+  if (!tdata || !tdata.rich) return;
+  setPlaying(false);
+  if ($('step-mode').value === 'interaction') {
+    const eps = 1e-9;
+    const list = ev.interactions;
+    if (dir > 0) { const n = list.find((i) => i.t_ns > clock.t + eps); seek(n ? n.t_ns : clock.tEnd); }
+    else { let p = null; for (const i of list) if (i.t_ns < clock.t - eps) p = i; seek(p ? p.t_ns : 0); }
+  } else seek(clock.t + dir * clock.tEnd / 100);
+}
+function speed() { return Number($('speed').value); }
+function tick() {
+  const now = performance.now();
+  if (clock.playing) {
+    clock.t += speed() * SPEED_BASE_NS_PER_S * (now - clock.last) / 1000;
+    if (clock.t >= clock.tEnd) { clock.t = clock.tEnd; setPlaying(false); }
+    clock.dirty = true;
+  }
+  clock.last = now;
+  if (clock.dirty && ev) { clock.dirty = false; updateFrame(); }
+}
+$('play').addEventListener('click', () => setPlaying(!clock.playing));
+$('t-reset').addEventListener('click', () => { setPlaying(false); seek(0); });
+$('t-back').addEventListener('click', () => stepBy(-1));
+$('t-fwd').addEventListener('click', () => stepBy(1));
+$('time-slider').addEventListener('input', (e) => { setPlaying(false); seek(clock.tEnd * Number(e.target.value) / 1000); });
+$('speed').addEventListener('change', () => { $('speed-note').textContent = '= ' + (speed() * SPEED_BASE_NS_PER_S).toFixed(3) + ' ns per second'; });
+['show-heads', 'show-markers', 'show-glow', 'glow-all'].forEach((id) => $(id).addEventListener('change', () => {
+  if (id === 'glow-all' && ev && tdata.rich && geometry) {
+    glowMax = 0; const fin = Core.stateAt(ev, clock.tEnd + 1, volumeShapes.length).byVolume;
+    for (let i = 0; i < volumeShapes.length; i++) if (glowEligible(i)) glowMax = Math.max(glowMax, fin[i]);
+  }
+  clock.dirty = true;
+}));
+$('colour-by').addEventListener('change', () => { if (ev) { $('energy-legend').hidden = colourMode() !== 'energy'; repaintAll(); clock.dirty = true; } });
+
+function applyFormatMode() {
+  const rich = tdata && tdata.rich;
+  ['play', 't-reset', 't-back', 't-fwd', 'time-slider', 'speed', 'step-mode', 'show-heads', 'show-markers', 'show-glow', 'glow-all'].forEach((id) => { $(id).disabled = !rich; });
+  [...$('colour-by').options].forEach((o) => { if (o.value === 'process') o.disabled = !rich; });
+  if (!rich && colourMode() === 'process') $('colour-by').value = 'charge';
+  $('format-note').textContent = rich ? '' : 'This is a format 1 file (trajectories.json 1.0): it has no time, energy, deposit or process data, so playback, interaction markers and the glow are disabled. The tracks are shown whole; "kinetic energy" colours each track by its starting energy.';
+  $('replay-box').hidden = false;
 }
 
 function setupTrajectories() {
+  applyFormatMode();
+  processColours = Core.processColourMap(tdata.processes);
   const select = $('event');
   select.innerHTML = '';
-  trajectories.events.forEach((e, i) => {
+  tdata.events.forEach((e, i) => {
     const o = document.createElement('option');
     o.value = i; o.textContent = 'event ' + e.event_id;
     select.appendChild(o);
   });
   $('events-box').hidden = false;
-  showEvent(0);
+  setPlaying(false);
+  buildEvent(0);
 }
+function showEvent(index) { buildEvent(index); }
 $('event').addEventListener('change', (e) => showEvent(Number(e.target.value)));
 const step = (d) => {
-  if (!trajectories) return;
-  const s = $('event'); const n = trajectories.events.length;
+  if (!tdata) return;
+  const s = $('event'); const n = tdata.events.length;
   s.value = (Number(s.value) + d + n) % n; showEvent(Number(s.value));
 };
 $('prev').addEventListener('click', () => step(-1));
 $('next').addEventListener('click', () => step(1));
-window.addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft') step(-1); if (e.key === 'ArrowRight') step(1); });
+window.addEventListener('keydown', (e) => {
+  if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) && e.target.type !== 'checkbox' && e.target.type !== 'range') return;
+  if (e.key === 'ArrowLeft') step(-1);
+  else if (e.key === 'ArrowRight') step(1);
+  else if (e.key === ' ') { e.preventDefault(); setPlaying(!clock.playing); }
+  else if (e.key === '.') stepBy(1);
+  else if (e.key === ',') stepBy(-1);
+});
 $('show-tracks').addEventListener('change', () => { tracks.visible = $('show-tracks').checked; });
-['charged-only', 'primary-only', 'dim-neutral'].forEach((id) => $(id).addEventListener('change', () => { if (trajectories) showEvent(currentEvent); }));
-$('track-width').addEventListener('input', () => { if (trajectories) showEvent(currentEvent); });
-$('show-points').addEventListener('change', () => { for (const o of tracks.children) if (o.userData.isPoints) o.visible = $('show-points').checked; });
+['charged-only', 'primary-only', 'dim-neutral'].forEach((id) => $(id).addEventListener('change', () => { if (tdata) { const keep = clock.t, p = clock.playing; buildEvent(currentEvent); if (tdata.rich) { clock.t = keep; clock.playing = p; clock.dirty = true; repaintAll(); } } }));
+$('track-width').addEventListener('input', () => { if (tdata) { const keep = clock.t, p = clock.playing; buildEvent(currentEvent); if (tdata.rich) { clock.t = keep; clock.playing = p; clock.dirty = true; repaintAll(); } } });
+$('show-points').addEventListener('change', () => { if (vertexPoints) vertexPoints.visible = $('show-points').checked; clock.dirty = true; });
 
 // ---------------------------------------------------------------- loading
 function describe() {
@@ -381,21 +1012,59 @@ function describe() {
     parts.push('template ' + geometry.extras.template + ', ' + geometry.nodes.length + ' volumes, beam axis ' +
       geometry.extras.beam_axis + ', glb unit ' + geometry.extras.length_unit);
   }
-  if (trajectories) {
-    parts.push(trajectories.events.length + ' events, trajectories in ' + trajectories.unit);
-    if (geometry && geometry.extras.spec_oid !== trajectories.spec_oid) {
+  if (tdata) {
+    parts.push('trajectories.json format ' + tdata.version + ': ' + tdata.events.length + ' events, in ' + tdata.unit);
+    if (geometry && geometry.extras.spec_oid !== tdata.spec_oid) {
       parts.push('WARNING: the two files are from different specs');
     }
   }
   $('meta').textContent = parts.join('. ');
-  status(geometry || trajectories ? 'Loaded.' : 'Nothing loaded.');
+  status(geometry || tdata ? 'Loaded.' : 'Nothing loaded.');
 }
 
-async function useGeometry(buffer) { await loadGeometry(buffer); buildRoleToggles(); setView('z'); describe(); if (trajectories) showEvent(Number($('event').value || 0)); }
+// The volumes of geometry.glb in mm, for the glow: boxes for the calorimeter, tubes for the tracker.
+function buildVolumes() {
+  const mm = geometry.extras.mm_per_unit || 1000;
+  volumeShapes = [];
+  scene.updateMatrixWorld(true);
+  for (const n of geometry.nodes) {
+    if (geometry.extras.template === 'tracker_barrel') {
+      const pos = n.object.geometry.attributes.position;
+      let rin = Infinity, rout = 0, zhalf = 0;
+      for (let i = 0; i < pos.count; i++) {
+        const r = Math.hypot(pos.getX(i), pos.getY(i));
+        rin = Math.min(rin, r); rout = Math.max(rout, r); zhalf = Math.max(zhalf, Math.abs(pos.getZ(i)));
+      }
+      volumeShapes.push({ kind: 'tube', rin: rin * mm, rout: rout * mm, zhalf: zhalf * mm });
+    } else {
+      const b = new THREE.Box3().setFromObject(n.object);
+      volumeShapes.push({ kind: 'box', min: b.min.toArray().map((v) => v * mm), max: b.max.toArray().map((v) => v * mm) });
+    }
+  }
+}
+
+// Box of the tracks of the event on show, in glb units, to frame them when there is no geometry.
+function eventBox() {
+  const scale = 1 / ((geometry && geometry.extras.mm_per_unit) || 1000);
+  const box = new THREE.Box3();
+  for (const t of ev.tracks) for (let i = 0; i < t.n; i++) box.expandByPoint(new THREE.Vector3(t.x[i] * scale, t.y[i] * scale, t.z[i] * scale));
+  return box;
+}
+
+async function useGeometry(buffer) {
+  await loadGeometry(buffer); buildRoleToggles(); buildVolumes(); setView('z'); describe();
+  if (tdata) buildEvent(currentEvent);
+}
 function useTrajectories(text) {
-  trajectories = JSON.parse(text); setupTrajectories(); describe();
+  try {
+    tdata = Core.normalise(JSON.parse(text));
+  } catch (err) {
+    tdata = null; status('Could not read trajectories.json: ' + err.message); return;
+  }
+  currentEvent = 0;
+  setupTrajectories(); describe();
   if (!geometry) {   // no geometry.glb: frame the tracks of the first event
-    const box = new THREE.Box3().setFromObject(tracks);
+    const box = eventBox();
     if (!box.isEmpty()) { radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 1e-3); box.getCenter(centre); setView('z'); }
   }
 }

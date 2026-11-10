@@ -1,6 +1,7 @@
 // Unit tests of the 3-D export that need no simulation (docs/EXPORT3D.md): number formatting, the
 // selection of tracks, the JSON layout, and the structure of geometry.glb.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -31,8 +32,14 @@ TrackRecord track(int id, int parent, double energy_gev, int npoints = 2)
   t.pdg = parent == 0 ? 13 : 11;
   t.charge = parent == 0 ? -1 : -1;
   t.kinetic_energy_start_gev = energy_gev;
+  t.particle = parent == 0 ? "mu-" : "e-";
+  t.creator_process = parent == 0 ? kNoProcess : export_process_id("eIoni");
   for (int i = 0; i < npoints; ++i) {
     t.points.push_back({1.0 * i, 0.5 * i, 0.0});
+    t.t_ns.push_back(0.01 * i);
+    t.kinetic_energy_gev.push_back(energy_gev / (1 + i));
+    t.edep_gev.push_back(i == 0 ? 0.0 : 0.0001 * i);
+    t.process.push_back(i == 0 ? kNoProcess : export_process_id("Transportation"));
   }
   return t;
 }
@@ -105,25 +112,159 @@ TEST_CASE("the header of trajectories.json", "[export3d]")
   o.events = 7;
   o.min_energy_gev = 0.0025;
   CHECK(trajectories_header("0123456789abcdef0123456789ab", o) ==
-        "{\"format_version\":\"1.0\",\"unit\":\"mm\",\"spec_oid\":\"0123456789abcdef0123456789ab\","
-        "\"min_energy_GeV\":0.002500,\"max_tracks_per_event\":500,\"events_requested\":7,\"events\":[\n");
+        "{\"format_version\":\"2.0\",\"unit\":\"mm\",\"spec_oid\":\"0123456789abcdef0123456789ab\","
+        "\"min_energy_GeV\":0.002500,\"max_tracks_per_event\":500,\"max_interactions_per_event\":2000,"
+        "\"events_requested\":7,\"point_fields\":[\"x_mm\",\"y_mm\",\"z_mm\",\"t_ns\",\"kinetic_energy_GeV\","
+        "\"edep_GeV\",\"process\"],\"events\":[\n");
 }
 
 TEST_CASE("one event of trajectories.json, byte for byte", "[export3d]")
 {
   EventTracks e;
   e.tracks_total = 5;
+  e.interactions_total = 4;
   TrackRecord t = track(1, 0, 1.0, 0);
   t.points = {{0, 0, 0}, {49.8454, -0.0004, 1.0005}};
+  t.t_ns = {0.0, 0.1666667};
+  t.kinetic_energy_gev = {1.0, 0.98765432};
+  t.edep_gev = {0.0, 0.00001234};
+  t.process = {kNoProcess, export_process_id("compt")};
   e.tracks.push_back(t);
   e.tracks.push_back(track(3, 1, 0.0123456789, 1));
+  InteractionRecord i;
+  i.track_id = 1;
+  i.point_index = 1;
+  i.t_ns = 0.1666667;
+  i.position_mm = {49.8454, -0.0004, 1.0005};
+  i.process = export_process_id("compt");
+  i.secondaries = {3};
+  i.edep_gev = 0.00001234;
+  e.interactions.push_back(i);
   CHECK(e.dropped() == 3);
+  CHECK(e.dropped_interactions() == 3);
   CHECK(trajectories_event_json(4, e) ==
-        "{\"event_id\":4,\"tracks_total\":5,\"dropped_tracks\":3,\"tracks\":["
-        "{\"track_id\":1,\"parent_id\":0,\"pdg\":13,\"charge\":-1,\"kinetic_energy_start_GeV\":1.000000,"
-        "\"points\":[[0.000,0.000,0.000],[49.845,0.000,1.000]]},"
-        "{\"track_id\":3,\"parent_id\":1,\"pdg\":11,\"charge\":-1,\"kinetic_energy_start_GeV\":0.012346,"
-        "\"points\":[[0.000,0.000,0.000]]}]}");
+        "{\"event_id\":4,\"tracks_total\":5,\"dropped_tracks\":3,\"interactions_total\":4,"
+        "\"dropped_interactions\":3,\"tracks\":["
+        "{\"track_id\":1,\"parent_id\":0,\"pdg\":13,\"particle\":\"mu-\",\"charge\":-1,"
+        "\"creator_process\":\"primary\",\"end_process\":\"compt\",\"kinetic_energy_start_GeV\":1.000000,"
+        "\"points\":[[0.000,0.000,0.000,0.000000,1.0000000,0.0000000,null],"
+        "[49.845,0.000,1.000,0.166667,0.9876543,0.0000123,\"compt\"]]},"
+        "{\"track_id\":3,\"parent_id\":1,\"pdg\":11,\"particle\":\"e-\",\"charge\":-1,"
+        "\"creator_process\":\"eIoni\",\"end_process\":\"none\",\"kinetic_energy_start_GeV\":0.012346,"
+        "\"points\":[[0.000,0.000,0.000,0.000000,0.0123457,0.0000000,null]]}],"
+        "\"interactions\":[{\"track_id\":1,\"point_index\":1,\"t_ns\":0.166667,"
+        "\"position_mm\":[49.845,0.000,1.000],\"process\":\"compt\",\"secondaries\":[3],"
+        "\"edep_GeV\":0.0000123}]}");
+  // a column of the wrong length is an export failure, not a corrupt file
+  e.tracks[0].t_ns.pop_back();
+  CHECK_THROWS_AS(trajectories_event_json(4, e), ExportError);
+}
+
+TEST_CASE("which steps are interactions", "[export3d]")
+{
+  for (const char* travelling : {"Transportation", "CoupledTransportation", "msc", "StepLimiter", "UserSpecialCuts"}) {
+    CHECK_FALSE(is_interaction_step(travelling, 0));
+    CHECK_FALSE(is_interaction_step(travelling, 3));
+  }
+  for (const char* discrete : {"compt", "phot", "conv", "Rayl", "annihil", "eBrem", "Decay", "hadElastic", "CoulombScat"}) {
+    CHECK(is_interaction_step(discrete, 0));
+    CHECK(is_interaction_step(discrete, 2));
+  }
+  // ionisation only counts when it made a delta ray
+  CHECK_FALSE(is_interaction_step("eIoni", 0));
+  CHECK(is_interaction_step("eIoni", 1));
+  CHECK_FALSE(is_interaction_step("muIoni", 0));
+  CHECK(is_interaction_step("ionIoni", 1));
+}
+
+TEST_CASE("process names have stable ids and a name for no process", "[export3d]")
+{
+  const std::uint16_t a = export_process_id("compt");
+  CHECK(export_process_id("compt") == a);
+  CHECK(export_process_name(a) == "compt");
+  CHECK(export_process_id("phot") != a);
+  CHECK(export_process_name(kNoProcess) == "none");
+}
+
+namespace {
+InteractionRecord interaction(int point, double t, double edep, double transferred)
+{
+  InteractionRecord i;
+  i.point_index = point;
+  i.t_ns = t;
+  i.position_mm = {0, 0, t};
+  i.process = export_process_id("compt");
+  i.edep_gev = edep;
+  i.transferred_gev = transferred;
+  return i;
+}
+}  // namespace
+
+TEST_CASE("interactions of kept tracks move to the event, ordered, with their secondaries sorted", "[export3d]")
+{
+  TrackRecord a = track(1, 0, 1.0, 3);
+  a.interactions.push_back(interaction(2, 0.5, 0.1, 0.1));
+  a.interactions.back().secondaries = {9, 4};
+  TrackRecord b = track(2, 1, 0.5, 3);
+  b.interactions.push_back(interaction(1, 0.25, 0.1, 0.1));
+  b.interactions.push_back(interaction(2, 0.5, 0.1, 0.1));  // same time as a's: track_id decides
+  const EventTracks r = select_tracks({b, a}, 2, 7);
+  REQUIRE(r.interactions.size() == 3);
+  CHECK(r.interactions_total == 7);
+  CHECK(r.dropped_interactions() == 4);
+  CHECK(r.interactions[0].track_id == 2);
+  CHECK(r.interactions[0].t_ns == 0.25);
+  CHECK(r.interactions[1].track_id == 1);
+  CHECK(r.interactions[2].track_id == 2);
+  CHECK(r.interactions[1].secondaries == std::vector<std::int32_t>{4, 9});
+  for (const TrackRecord& t : r.tracks) CHECK(t.interactions.empty());
+}
+
+TEST_CASE("over the interaction cap the largest transferred energy is kept, in time order", "[export3d]")
+{
+  const int n = kExportMaxInteractionsPerEvent + 300;
+  TrackRecord a = track(1, 0, 1.0, 2);
+  for (int i = 0; i < n; ++i) {
+    // transferred energy repeats (many ties); time increases with i
+    a.interactions.push_back(interaction(1, 0.001 * i, 0.0, 0.001 * (i % 100)));
+  }
+  const EventTracks r = select_tracks({a}, 1, static_cast<std::uint32_t>(n));
+  REQUIRE(r.interactions.size() == static_cast<std::size_t>(kExportMaxInteractionsPerEvent));
+  CHECK(r.dropped_interactions() == 300);
+  double lowest_kept = 1e9;
+  for (std::size_t i = 0; i < r.interactions.size(); ++i) {
+    if (i > 0) CHECK(r.interactions[i - 1].t_ns <= r.interactions[i].t_ns);
+    lowest_kept = std::min(lowest_kept, r.interactions[i].transferred_gev);
+  }
+  // the 300 dropped are all at or below the lowest kept: the 300 smallest values of the input
+  std::vector<double> all_values;
+  for (const auto& i : a.interactions) all_values.push_back(i.transferred_gev);
+  std::sort(all_values.begin(), all_values.end());
+  CHECK(all_values[299] <= lowest_kept);
+  // the choice does not depend on the order the interactions were recorded in
+  std::reverse(a.interactions.begin(), a.interactions.end());
+  const EventTracks r2 = select_tracks({a}, 1, static_cast<std::uint32_t>(n));
+  REQUIRE(r2.interactions.size() == r.interactions.size());
+  for (std::size_t i = 0; i < r.interactions.size(); ++i) CHECK(r.interactions[i].t_ns == r2.interactions[i].t_ns);
+}
+
+TEST_CASE("TrackSelector finds a stored track and attaches steps and interactions to it", "[export3d]")
+{
+  TrackSelector selector;
+  TrackRecord start = track(7, 0, 1.0, 1);
+  REQUIRE(selector.begin_track(start));
+  selector.add_step({1, 2, 3}, 0.5, 0.9, 0.01, export_process_id("compt"));
+  const std::size_t index = selector.add_interaction(interaction(0, 0.5, 0.01, 0.2));
+  CHECK(index == 0);
+  REQUIRE(selector.find(7) != nullptr);
+  CHECK(selector.find(8) == nullptr);
+  selector.find(7)->interactions[0].secondaries.push_back(11);
+  const EventTracks r = selector.finish(1, 1);
+  REQUIRE(r.interactions.size() == 1);
+  CHECK(r.interactions[0].point_index == 1);  // the step's end point, not the creation point
+  CHECK(r.interactions[0].secondaries == std::vector<std::int32_t>{11});
+  CHECK(r.tracks[0].points.size() == 2);
+  CHECK(r.tracks[0].process.size() == 2);
 }
 
 TEST_CASE("under the cap every eligible track is kept, in track_id order", "[export3d]")
@@ -200,8 +341,14 @@ TEST_CASE("TrackSelector bounds the stored tracks and keeps what select_tracks k
     for (const TrackRecord& t : order) {
       TrackRecord start = t;
       start.points.assign(1, t.points.front());  // only the creation point, as the tracking action gives
+      start.t_ns.assign(1, t.t_ns.front());
+      start.kinetic_energy_gev.assign(1, t.kinetic_energy_gev.front());
+      start.edep_gev.assign(1, t.edep_gev.front());
+      start.process.assign(1, t.process.front());
       if (selector.begin_track(std::move(start))) {
-        for (std::size_t k = 1; k < t.points.size(); ++k) selector.add_point(t.points[k]);
+        for (std::size_t k = 1; k < t.points.size(); ++k) {
+          selector.add_step(t.points[k], t.t_ns[k], t.kinetic_energy_gev[k], t.edep_gev[k], t.process[k]);
+        }
       } else {
         ++refused;
       }

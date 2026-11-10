@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The 3-D export of `vikshep-sim run --export-3d` (docs/EXPORT3D.md), end to end, with the numbers printed.
 
-Usage: check_export3d.py <vikshep-sim> <examples dir> <golden dir> <trajectories.schema.json>
+Usage: check_export3d.py <vikshep-sim> <examples dir> <golden dir> <trajectories-2.0.schema.json>
 Exit code 77 (ctest: skipped) when the Geant4 data sets are missing.
 """
 import hashlib
@@ -197,7 +197,8 @@ try:
            all(e["bytes"] == sizes[e["file"]] and e["oid"] == oid(read(runs[("on", 1)], e["file"]))
                for e in summary_on["exports"]), "run_summary.json lists both files with the right sizes and OIDs")
     expect(prov_on["export_3d"]["files"] == summary_on["exports"] and prov_on["export_3d"]["events"] == 10 and
-           prov_on["export_3d"]["max_tracks_per_event"] == 500 and prov_on["export_3d"]["min_energy_GeV"] == 0.001,
+           prov_on["export_3d"]["max_tracks_per_event"] == 500 and prov_on["export_3d"]["min_energy_GeV"] == 0.001 and
+           prov_on["export_3d"]["format_version"] == "2.0" and prov_on["export_3d"]["max_interactions_per_event"] == 2000,
            "provenance.json export_3d: the same files, 10 events, the limits")
     expect(all(e["oid"] != oids[("on", 1)] for e in summary_on["exports"]), "the export OIDs are not the OID of the hits")
     print("   sizes with 10 events: geometry.glb %d bytes, trajectories.json %d bytes" %
@@ -242,18 +243,24 @@ try:
     top_keys = [k for k, _ in first]
     event_keys = [k for k, _ in first[-1][1][0]]
     expect(top_keys == ["format_version", "unit", "spec_oid", "min_energy_GeV", "max_tracks_per_event",
-                        "events_requested", "events"] and
-           event_keys == ["event_id", "tracks_total", "dropped_tracks", "tracks"] and
-           [k for k, _ in first[-1][1][0][-1][1][0]] ==
-           ["track_id", "parent_id", "pdg", "charge", "kinetic_energy_start_GeV", "points"],
+                        "max_interactions_per_event", "events_requested", "point_fields", "events"] and
+           event_keys == ["event_id", "tracks_total", "dropped_tracks", "interactions_total", "dropped_interactions",
+                          "tracks", "interactions"] and
+           [k for k, _ in first[-1][1][0][-2][1][0]] ==
+           ["track_id", "parent_id", "pdg", "particle", "charge", "creator_process", "end_process",
+            "kinetic_energy_start_GeV", "points"] and
+           all([k for k, _ in i] == ["track_id", "point_index", "t_ns", "position_mm", "process", "secondaries",
+                                     "edep_GeV"] for ev in first[-1][1] for i in dict(ev)["interactions"]),
            "keys appear in the documented order")
     body_lines = text.split("\n")
     expect(len(body_lines) == 1 + 10 + 1 + 1 and body_lines[0].endswith('"events":[') and body_lines[-2] == "]}" and
            body_lines[-1] == "", "layout: one header line, one line per event (10), then ]} and a final newline")
-    numbers = re.findall(r"\[(-?[0-9.]+),(-?[0-9.]+),(-?[0-9.]+)\]", text)
-    expect(len(numbers) > 50 and all(re.fullmatch(r"-?\d+\.\d{3}", n) for t in numbers for n in t) and
-           "-0.000" not in text and "e+" not in text and "e-" not in text,
-           "every coordinate is fixed-point with 3 decimals (%d points), no -0.000, no exponent form" % len(numbers))
+    rows = re.findall(r'\[(-?\d+\.\d{3}),(-?\d+\.\d{3}),(-?\d+\.\d{3}),(\d+\.\d{6}),(\d+\.\d{7}),(\d+\.\d{7}),'
+                      r'(null|"[A-Za-z0-9_]+")\]', text)
+    n_points = sum(len(t["points"]) for e in traj["events"] for t in e["tracks"])
+    expect(len(rows) == n_points and n_points > 50 and "-0.000" not in text and not re.search(r"[0-9][eE][+-]?[0-9]", text),
+           "every point is [x,y,z] with 3 decimals, t with 6, energy and deposit with 7, and a process name or null "
+           "(%d points, all match), no -0.000, no exponent form" % n_points)
     expect(all(re.fullmatch(r"\d+\.\d{6}", e) for e in re.findall(r'"kinetic_energy_start_GeV":([^,]+),', text)) and
            '"min_energy_GeV":0.001000,' in text, "energies are fixed-point with 6 decimals")
     expect(traj["spec_oid"] == prov_on["spec_oid"] and traj["unit"] == "mm", "spec_oid and unit match the run")
@@ -263,7 +270,7 @@ try:
            "dropped_tracks = tracks_total - kept, and tracks are in track_id order")
     prim = [[t for t in e["tracks"] if t["parent_id"] == 0] for e in traj["events"]]
     expect(all(len(p) == 1 and p[0]["pdg"] == 13 and p[0]["charge"] == -1 and p[0]["kinetic_energy_start_GeV"] == 1.0 and
-               p[0]["points"][0] == [0.0, 0.0, 0.0] and len(p[0]["points"]) >= 7 for p in prim),
+               p[0]["points"][0][:3] == [0.0, 0.0, 0.0] and p[0]["points"][0][6] is None and len(p[0]["points"]) >= 7 for p in prim),
            "each exported event has one primary: pdg 13, charge -1, 1.000000 GeV, starting at the origin, with a "
            "polyline of steps")
     tracks_exported = sum(len(e["tracks"]) for e in traj["events"])
@@ -292,7 +299,7 @@ try:
     r_traj, r_hits = [], []
     for e in tfit["events"]:
         p = next(t for t in e["tracks"] if t["parent_id"] == 0)["points"]
-        xy = np.array(p)
+        xy = np.array([q[:3] for q in p])
         r_traj.append(tl.fit_circle(xy[:, 0], xy[:, 1])[2])
         sel = (hh["event_id"] == e["event_id"]) & (hh["track_id"] == 1)
         r_hits.append(tl.fit_circle(hh["x"][sel], hh["y"][sel])[2])
