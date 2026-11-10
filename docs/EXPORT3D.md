@@ -551,6 +551,17 @@ their time, coloured by process; slabs glow with the energy deposited so far; a 
 time, tracks alive, deposited energy and energy in flight. It is a **replay of the stored
 event**, not a live simulation. A format 1 file loads with the playback disabled.
 
+What it can show: the kept tracks and interactions of the first events (sections 4 and 7.5),
+coloured by charge, by kinetic energy (log scale, 1 keV up) or by the process that ended each step;
+the deposit per volume as it accumulates, using the midpoint rule of 7.3; the energy in flight, the
+energy that has left the world and the primary energy, which add up to the primary energy at every
+time when nothing is dropped (tested). What it cannot show: tracks and interactions that are not in
+the file (a warning says how many; the energy in flight is then a lower bound); anything between
+two points of a track (a step is drawn as a straight chord, also in a field, and the head moves on it
+at constant speed in time); the exact moment inside a step at which a charged particle deposited
+energy (the deposit is spread evenly over the step; a neutral particle deposits at its end); the
+number of events beyond the export limit. The viewer reads the file as it is and simulates nothing.
+
 ## Decisions to confirm
 
 | ID | Decision | Proposed default | Alternative |

@@ -156,7 +156,7 @@ ctest --test-dir build --output-on-failure
 - docs/SPEC.md and docs/spec.schema.json: the simulation spec (versions 1.0 and 1.1).
 - docs/HITS.md: the hits.arrow format.
 - docs/SIDECAR.md: the command-line contract with the desktop app.
-- docs/EXPORT3D.md: the optional 3-D export (`geometry.glb`, `trajectories.json`).
+- docs/EXPORT3D.md: the optional 3-D export (`geometry.glb`, `trajectories.json` format 2 with time, energy and interactions) and the replay in `scripts/view_3d.html` (a replay of a stored event, not a live run).
 
 ## Tracker barrel and magnetic field (spec 1.1)
 

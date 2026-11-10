@@ -290,6 +290,13 @@ add_test(NAME export3d_trajectory_formats
 )
 set_tests_properties(export3d_trajectory_formats PROPERTIES TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
 
+# The replay logic and the static checks of scripts/view_3d.html, run with Node on the fixtures.
+# The browser part (three.js, the DOM) is not run. Skipped (77) without node.
+add_test(NAME export3d_viewer_replay_logic
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_viewer.py ${CMAKE_CURRENT_SOURCE_DIR}
+)
+set_tests_properties(export3d_viewer_replay_logic PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
+
 # geometry.glb of both examples passes the Khronos glTF Validator (pinned in tests/gltf-validator)
 # with no error and no warning. Skipped (77) without node or `npm ci` there; a failure under
 # VIKSHEP_REQUIRE_DATA.
