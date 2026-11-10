@@ -908,11 +908,16 @@ Written 2026-11-07. Nothing built locally: the package is built and tested by
       20-event electron_shower.json run
 - [x] Owner: anaconda.org channel `vikshep`, ANACONDA_OWNER variable, "anaconda" environment with
       ANACONDA_API_KEY, required reviewers and a `v*` tag rule (2026-11-10)
-- [ ] Upload: the first v0.1.0 run (42821937948, 2026-11-10) built and tested all three packages,
+- [x] Upload: the first v0.1.0 run (42821937948, 2026-11-10) built and tested all three packages,
       then the upload step failed before uploading anything: it passed `dist/*.conda`, but the
       downloaded artifacts keep the platform folders (`dist/linux-64/...`). The step now collects
       `dist/*/*.conda` and stops unless it finds 3 packages. Nothing was published, so the v0.1.0
       tag moves to the merge of this fix.
+- [x] Published 2026-11-10: v0.1.0 moved to 79efa63; run 42825809882 uploaded
+      vikshep-sim 0.1.0 for linux-64, osx-arm64 and osx-64 to https://anaconda.org/vikshep/vikshep-sim
+- [x] Install from the channel checked on macOS x86_64 (micromamba 2.10.0, fresh environment):
+      `vikshep-sim info --json` reports Geant4 11.4.3, activation sets G4LEDATA, and six 20-event
+      runs (electron and pion at 2, 5 and 10 GeV) were read by vikshep-ingest 0.4.0 `sim`
 
 Decisions to confirm:
 
