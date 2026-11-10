@@ -147,6 +147,7 @@ micromamba install -n vikshep-sim -c conda-forge geant4-data-emlow   # example
 ## Tests
 
 ```sh
+npm ci --prefix tests/gltf-validator      # once: the export3d_glb_khronos_validator test needs it (Node.js)
 ctest --test-dir build --output-on-failure
 ```
 
