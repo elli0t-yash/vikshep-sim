@@ -273,6 +273,23 @@ add_test(NAME export3d_files_and_oid_unchanged
 )
 set_tests_properties(export3d_files_and_oid_unchanged PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
 
+# Format 2 of trajectories.json (docs/EXPORT3D.md section 7): physics numbers from the teaching
+# examples (time, photon speed, energy balance, process names, field radius).
+add_test(NAME export3d_physics_numbers
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_export_physics.py
+          $<TARGET_FILE:vikshep-sim>
+          ${CMAKE_CURRENT_SOURCE_DIR}/docs/examples
+)
+set_tests_properties(export3d_physics_numbers PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
+
+# Both versions of trajectories.json: schemas, the format 1 file of release v0.1.0, the reader rule.
+# Needs no simulation.
+add_test(NAME export3d_trajectory_formats
+  COMMAND ${VIKSHEP_PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_trajectory_formats.py
+          ${CMAKE_CURRENT_SOURCE_DIR}/tests
+)
+set_tests_properties(export3d_trajectory_formats PROPERTIES TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
+
 # geometry.glb of both examples passes the Khronos glTF Validator (pinned in tests/gltf-validator)
 # with no error and no warning. Skipped (77) without node or `npm ci` there; a failure under
 # VIKSHEP_REQUIRE_DATA.

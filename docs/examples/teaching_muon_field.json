@@ -1,0 +1,18 @@
+{
+  "spec_version": "1.1",
+  "template": "tracker_barrel",
+  "geometry": {
+    "layers": [
+      {"radius_mm": 50,  "thickness_mm": 2, "half_length_mm": 500},
+      {"radius_mm": 100, "thickness_mm": 2, "half_length_mm": 500},
+      {"radius_mm": 150, "thickness_mm": 2, "half_length_mm": 500},
+      {"radius_mm": 200, "thickness_mm": 2, "half_length_mm": 500},
+      {"radius_mm": 250, "thickness_mm": 2, "half_length_mm": 500},
+      {"radius_mm": 300, "thickness_mm": 2, "half_length_mm": 500}
+    ]
+  },
+  "field": {"B_T": [0, 0, 2]},
+  "gun": {"particle": "mu-", "energy_GeV": 1},
+  "events": 10,
+  "seed": 3
+}
