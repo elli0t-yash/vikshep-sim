@@ -170,7 +170,8 @@ PipelineResult run_to_folder(const json& user_spec, const std::string& out_dir,
   if (options.export3d.enabled) {
     provenance.export_3d = {{"events", result.export_events},
                             {"files", exports_json},
-                            {"format_version", kExportFormatVersion},
+                            {"format_version", kTrajectoriesFormatVersion},
+                            {"max_interactions_per_event", kExportMaxInteractionsPerEvent},
                             {"max_tracks_per_event", kExportMaxTracksPerEvent},
                             {"min_energy_GeV", options.export3d.min_energy_gev}};
   }

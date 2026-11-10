@@ -269,7 +269,7 @@ add_test(NAME export3d_files_and_oid_unchanged
           $<TARGET_FILE:vikshep-sim>
           ${CMAKE_CURRENT_SOURCE_DIR}/docs/examples
           ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden
-          ${CMAKE_CURRENT_SOURCE_DIR}/tests/trajectories.schema.json
+          ${CMAKE_CURRENT_SOURCE_DIR}/tests/trajectories-2.0.schema.json
 )
 set_tests_properties(export3d_files_and_oid_unchanged PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT ${VIKSHEP_TEST_TIMEOUT})
 
