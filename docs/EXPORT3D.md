@@ -455,11 +455,23 @@ the file is larger. Measured on this build (macOS arm64, Release, 4 threads,
 `docs/examples/electron_shower.json`, 5 GeV electrons, the default 10 events, 1 MeV, 500
 tracks):
 
-Measurements are added in a later commit of this milestone, once the writer exists.
+| | format 1 (before Y12) | format 2 |
+|---|---|---|
+| `trajectories.json` | 1 640 799 bytes | 6 810 739 bytes (4.15 times) |
+| tracks kept per event | 500 (of 6 968 to 7 381 created) | 500, the same tracks |
+| points in the file (10 events) | 49 571 | 49 571 |
+| interactions in the file (10 events) | none | 20 000 (the cap of 2000 is reached in every event; 4 804 to 5 213 dropped per event) |
+| bytes per point (whole file / points) | 33 | 137 |
+| `hits.arrow` of the same run | 25 247 578 bytes | 25 247 578 bytes, same OID `2180f381ce92c24afd6fe795810b` |
+
+Of the 6.8 MB, about 2.8 MB are the points (57 bytes each) and about 2.9 MB the
+interactions (145 bytes each; each repeats a position, a time and a deposit that its point already has, so that a
+reader need not look the point up). Re-run `vikshep-sim run --spec docs/examples/electron_shower.json --out <dir> --export-3d`
+to reproduce the sizes; the file is the same bytes for 1 and 4 threads. Measured on macOS arm64,
+Release, 2026-11-10.
 
 The cap on tracks bounds the file: at most 100 events x 500 tracks, each with its
-points. If a file is too large for a given use, the proposal for a compact encoding is in
-7.8; it is not part of format 2.
+points. Section 7.8 says why a columnar encoding does not help.
 
 ### 7.7 The export is a read-only view; what can be checked from it
 
@@ -479,17 +491,26 @@ points. If a file is too large for a given use, the proposal for a compact encod
 - Dropped tracks break the balance by their own energy; a viewer that shows "energy
   still in flight" for an event with dropped tracks shows a lower bound.
 
-### 7.8 Proposal (not part of format 2): a compact encoding
+### 7.8 Compact encoding: evaluated, not proposed
 
-A point as a row repeats the same short strings (`Transportation`, `eIoni`, ...) and the
-brackets for every point. The alternative is **columns per track**: instead of `points`,
-`"point_columns":{"x_mm":[..],"y_mm":[..],"z_mm":[..],"t_ns":[..],"kinetic_energy_GeV":[..],"edep_GeV":[..],"process":[..]}`,
-with `process` as indices into a top-level `"processes":[...]` list in order of first use.
-It is smaller because the process names and the delimiters are not repeated, and because
-a column of similar numbers compresses better; it is faster to load into typed arrays.
-The measured saving, from the same file, is in 7.6. It would be a new major version, because
-it removes `points`. It is proposed only if the size above is a problem; with the
-measured sizes it is not recommended now.
+Columns per track instead of rows per point (`"point_columns":{"x_mm":[..],"y_mm":[..],...,"process":[<index>]}`,
+with the process names in a list at the top of the file) were measured on the same 5 GeV shower
+file with the same number formats:
+
+| Encoding | Points part, bytes | Whole file, bytes | Points part, gzip level 6 |
+|----------|--------------------|-------------------|---------------------------|
+| rows (format 2) | 2 839 396 | 6 810 739 | 867 193 |
+| columns, process as index | 2 997 835 | about 6 969 000 | 912 838 |
+
+Columns are about 2 % **larger**, and compress slightly worse. The reason: a point is
+dominated by its six numbers (about 50 characters), not by the brackets or the process
+name (about 9 bytes in a row), and the numbers are the same in both encodings. So columns are
+not proposed. They would also remove `points` and need a new major version. If the size ever
+matters, the measurements point at two cheaper levers, neither of which is done here: the
+interactions could refer to their point by `point_index` only (about 1 MB less on this file, from the 145-byte entry of which about 50 bytes repeat the point,
+at the price of a lookup in the reader), and `t_ns` and the energies could be written with
+fewer decimals. The file compresses to about 22 % with gzip (1 506 446 bytes), which is what a
+server would send.
 
 ## 8. Teaching examples
 
@@ -500,7 +521,27 @@ run with the export and **all tracks and interactions kept**:
 vikshep-sim run --spec docs/examples/<name>.json --out <dir> --export-3d --export-min-energy 0
 ```
 
-The two examples are added in a later commit of this milestone, with their measured numbers.
+**`docs/examples/teaching_gamma.json`: a 100 MeV photon into the calorimeter.** The gun
+accepts `gamma` (SPEC.md, section 2.3), so the example uses the photon rather than a
+low-energy electron: a photon has no track until it interacts, and then each of the three
+processes of interest is visible separately: Compton scattering (`compt`), photoelectric
+absorption (`phot`) and pair production (`conv`), followed by the positron's
+annihilation (`annihil`). The same 10 x (5 mm LAr + 10 mm Pb) stack as `calorimeter.json`,
+5 events, seed 7. With `--export-min-energy 0` every track is kept: 133 to 156 tracks per
+event, below the cap of 500, and `dropped_tracks` and `dropped_interactions` are 0 in all 5
+events. Interactions over the 5 events: `phot` 230, `eBrem` 235, `compt` 140, `conv` 29,
+`annihil` 29, `Rayl` 19, `eIoni` 17 (a delta ray).
+
+**`docs/examples/teaching_muon_field.json`: a 1 GeV muon in a magnetic field.** This needs
+**spec_version 1.1** (the `field` block and the `tracker_barrel` template, SPEC.md,
+sections 2.5 and 2.6); a 1.0 spec cannot describe it. Six silicon layers, 2 mm thick (thicker
+than `tracker_muon.json`, so that the muon more often hands a delta ray enough energy to be
+tracked), B = 2 T along +z, 10 events, seed 3. The track bends with a radius of about 1.8 m
+(pT = 0.2998 B R). 7 delta-ray interactions (`muIoni` with a secondary) occur in 10 events
+(events 4, 5, 6 and 9 have at least one); with `--export-min-energy 0` they are in the file.
+
+The numbers behind these statements are checked by `tests/check_export_physics.py`
+(section 7.7 gives the rules); the values it prints are in STATUS.md.
 
 ## 9. Replay in scripts/view_3d.html
 
