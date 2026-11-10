@@ -69,16 +69,21 @@ golden OIDs of `tests/golden/RUN_OIDS.txt` are keyed by the build and need re-re
 `recipe/recipe.yaml` builds vikshep-sim as a conda package with
 [rattler-build](https://rattler.build), with Geant4 11.4.3 (noqt) pinned at build and run
 time (macOS packages need macOS 13.3 or later); `.github/workflows/conda.yml` builds and tests it on linux-64, osx-arm64 and osx-64
-for pull requests that touch the recipe, the build or the sources. The package is not
-published yet. Once a tag is uploaded to an anaconda.org channel, installing it pulls Geant4
-and its data sets from conda-forge, and activating the environment sets the data set
-variables:
+for pull requests that touch the recipe, the build or the sources, and uploads it to the
+[`vikshep` channel on anaconda.org](https://anaconda.org/vikshep/vikshep-sim) on a `vX.Y.Z` tag.
+Installing it pulls Geant4 and its data sets from conda-forge, and activating the environment
+sets the data set variables:
 
 ```sh
-micromamba create -n vikshep-sim -c <channel> -c conda-forge vikshep-sim
-micromamba activate vikshep-sim
+conda create -n vikshep-sim -c vikshep -c conda-forge vikshep-sim
+conda activate vikshep-sim
 vikshep-sim info --json
 ```
+
+`micromamba` and `mamba` take the same arguments. The Geant4 data sets make this a download of
+about 1.5 GB. The package has no Python; add `python pip` to the `create` line to read the runs
+with `pip install "vikshep-ingest[sim]"` in the same environment. conda 23.7 failed while reading
+the conda-forge metadata (2026-11-10, osx-64), before reaching this package; micromamba 2.x worked.
 
 Local build (needs rattler-build):
 
