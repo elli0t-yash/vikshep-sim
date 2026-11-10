@@ -1,4 +1,4 @@
-# 3-D export v1 (geometry.glb and trajectories.json)
+# 3-D export (geometry.glb and trajectories.json, trajectories format 1 and 2)
 
 Status: proposed. Becomes a contract when merged.
 
@@ -30,6 +30,12 @@ Words MUST, SHOULD and MAY are used in the usual sense.
   library's `cos` and `sin`.)
 - Nothing in either file varies between runs: no timestamps, no host names, no
   paths, no tool version string.
+
+- Format 2 of `trajectories.json` (section 7) adds time, energy, deposited energy and
+  process names, so that a viewer can **replay an event that has already been simulated**,
+  in physical time, and mark where each interaction happened. It is a replay of stored
+  data, like the event display Geant4 offers after an event. It is **not** a live run:
+  nothing is simulated while the viewer plays, and the viewer MUST NOT claim otherwise.
 
 ## 1. Conventions
 
@@ -168,6 +174,11 @@ There is one scene, `{"nodes": [0 .. n-1]}`, and it is the default scene.
 
 ## 3. trajectories.json
 
+This section defines **format 1** (`format_version` `"1.0"`). Format 2 (`"2.0"`) is
+defined in section 7 and is what `vikshep-sim` writes since the Y12 milestone; it contains
+everything of format 1 under the same names, plus the additions of section 7. Files of
+format 1 stay valid, and a viewer MUST read both (section 6).
+
 A UTF-8 JSON file, one top-level object, then the events. It is written in
 this fixed layout so that the bytes are a pure function of the data:
 
@@ -295,10 +306,209 @@ A track's hits in `hits.arrow` are unaffected by whether the track was kept.
 ## 6. Versioning
 
 `format_version` of `trajectories.json` and `asset.extras.export_format_version`
-of `geometry.glb` are `"<major>.<minor>"`, `"1.0"` for this document. Adding
-optional keys is a minor change; readers MUST ignore keys they do not know.
-Changing the meaning or unit of a key, the tessellation, the node order or the
+of `geometry.glb` are `"<major>.<minor>"` and are versioned **separately**:
+`geometry.glb` stays `"1.0"`; `trajectories.json` is `"2.0"` (section 7) and was `"1.0"`
+(section 3). Adding optional keys is a minor change; readers MUST ignore keys they do not
+know. Changing the meaning or unit of a key, the tessellation, the node order or the
 selection rules of section 4 is a major change.
+
+Why format 2 is `"2.0"` and not `"1.1"`: every point of a track changes from
+`[x,y,z]` to a longer array (section 7.3). A format 1 reader that took points as
+`[x,y,z]` would still read the first three numbers, but that is luck, not a promise, so the
+change is declared major. The rule for readers:
+
+- A reader MUST accept `format_version` `"1.0"` and `"2.0"` (and ignore unknown keys of any
+  minor version of them). It MUST read the first three numbers of a point as x, y, z in
+  both.
+- A viewer of a format 1 file has no time, energy, process or interaction data. It SHOULD
+  still show the tracks, disable what needs the missing data, and say so.
+- The flag stays `--export-3d` (SIDECAR.md, section 1.3). There is no option to write
+  format 1; the app asks for the export and gets the newest format. The `format_version`
+  in `provenance.json` (`export_3d`) is that of `trajectories.json`.
+
+## 7. Format 2 of trajectories.json (physics-rich)
+
+`format_version` `"2.0"`. Additive in content, major in version (section 6). Everything of
+sections 3.1 to 3.3 and 4 holds unless this section says otherwise. Keys still appear in
+the order of the tables, not sorted.
+
+### 7.1 Top level
+
+As in 3.1, with these changes (the header line of the file, with its newline, now reads
+`{"format_version":"2.0","unit":"mm","spec_oid":"...","min_energy_GeV":...,"max_tracks_per_event":500,"max_interactions_per_event":2000,"events_requested":N,"point_fields":[...],"events":[`):
+
+| Key | Type | Meaning |
+|-----|------|---------|
+| format_version | string | `"2.0"` |
+| max_interactions_per_event | integer | the cap of 7.5 (a constant of the format: 2000). New. |
+| point_fields | array of 7 strings | the meaning and unit of each element of a point, in order: `["x_mm","y_mm","z_mm","t_ns","kinetic_energy_GeV","edep_GeV","process"]`. New. Constant in this version; it is there so that the file explains itself. |
+
+### 7.2 Event
+
+As 3.2, plus:
+
+| Key | Type | Meaning |
+|-----|------|---------|
+| interactions_total | integer | the number of interactions (7.4) Geant4 produced in this event, whether or not their track is in the file. New. |
+| dropped_interactions | integer | `interactions_total` minus the number of entries of `interactions`. A viewer SHOULD tell the user when this is not 0. New. |
+| tracks | array | as 3.2 |
+| interactions | array | the kept interactions (7.4), ordered by ascending `t_ns`, ties by ascending `track_id`, then ascending `point_index`. New. |
+
+### 7.3 Track and point
+
+A track has these keys, in this order. `track_id`, `parent_id`, `pdg`, `charge` and
+`kinetic_energy_start_GeV` are as in 3.3. New: `particle`, `creator_process`, `end_process`.
+
+| Key | Type | Meaning |
+|-----|------|---------|
+| track_id | integer | as 3.3 |
+| parent_id | integer | as 3.3 |
+| pdg | integer | as 3.3 |
+| particle | string | the Geant4 particle name (`gamma`, `e-`, `e+`, `mu-`, `proton`, ...). New. |
+| charge | integer | as 3.3 |
+| creator_process | string | the name of the Geant4 process that created the track (`compt`, `conv`, `eIoni`, ...), or `"primary"` for a primary (`parent_id` 0). New. |
+| end_process | string | the name of the process that ended the track's last step, as in the `process` of its last point. `"Transportation"` means the track left the world. New. |
+| kinetic_energy_start_GeV | number | as 3.3 |
+| points | array of points | the polyline, as 3.3, now with seven elements per point |
+
+A **point** is an array `[x_mm, y_mm, z_mm, t_ns, kinetic_energy_GeV, edep_GeV, process]`:
+
+| Element | Type | Unit | Meaning |
+|---------|------|------|---------|
+| x_mm, y_mm, z_mm | number | mm | position, as 3.3 |
+| t_ns | number | ns | global time at that point: the time since the primary was generated at t = 0 in this event (Geant4 global time) |
+| kinetic_energy_GeV | number | GeV | kinetic energy of the track at that point (after the step) |
+| edep_GeV | number | GeV | energy deposited in the **step that ended at this point**, in any volume, sensitive or not (Geant4's total energy deposit of the step, `GetTotalEnergyDeposit`). 0 for the first point |
+| process | string or null | | the name of the Geant4 process that ended the step (the process that defined the post-step point). `null` for the first point, which ends no step |
+
+Consequences a reader can rely on:
+
+- `t_ns` never decreases along a track. For a particle that travels in a straight line the
+  time difference between two points is the path length divided by its speed; for a photon
+  (or any particle moving at c in vacuum, and a photon in matter, which Geant4 does not
+  slow down) it is the length divided by c = 299.792458 mm/ns.
+- The energy of a track at its end is the `kinetic_energy_GeV` of its last point.
+  For a track with `end_process` `"Transportation"` this is the energy that left the
+  world with it.
+- Where the energy of a step was deposited. The step lies inside one volume, and its
+  post-step point usually lies on the volume's surface, so the post-step point does not say
+  which volume. A viewer MUST use the **midpoint of the segment** between the previous point
+  and this point (in a field the chord, which for these steps lies inside the thin
+  volume) to find the volume. This is exact for the straight steps of the calorimeter and
+  a good approximation for the short steps of the tracker.
+- Number format (additive to 3.4): `t_ns` is written `%.6f` (1 femtosecond; light travels
+  0.3 micrometres in it), `kinetic_energy_GeV` and `edep_GeV` are written `%.7f` (0.1 keV).
+  A step that deposits less than 0.05 keV is therefore written as `0.0000000`. The energy
+  checks of section 7.7 depend on this resolution. The string is written as JSON, with
+  the escapes of RFC 8259; Geant4's process names are plain ASCII.
+- Points are written `[x,y,z,t,e,d,"process"]` without spaces; `null` is written as
+  `null`.
+
+### 7.4 Interactions
+
+An **interaction** is a step that ended in a process the user would call an event in the
+life of the particle, as opposed to the particle just travelling. A step is an interaction
+if its ending process is not one of `Transportation`, `CoupledTransportation`, `msc`,
+`StepLimiter`, `UserSpecialCuts` (travelling, multiple scattering and artificial step
+limits), and, if its name ends in `Ioni` (continuous-style ionisation), only if the step also
+created at least one secondary (a delta ray). A track that simply slows to rest by
+ionisation is therefore not an interaction; a track absorbed by `phot`, annihilated by
+`annihil` or decayed by `Decay` is. Rule applied to Geant4's own names, not mapped.
+
+Only interactions of the tracks that are in the file (4.1, 4.2, 4.3) are listed, so that
+every interaction can be drawn on a track. `interactions_total` counts the interactions
+of all tracks, so the difference is visible.
+
+| Key | Type | Meaning |
+|-----|------|---------|
+| track_id | integer | the track whose step it is (a track of `tracks`) |
+| point_index | integer | index in that track's `points` of the point that ends the step; `points[point_index]` has the same position and time |
+| t_ns | number | global time, ns, `%.6f`; equals the `t_ns` of that point |
+| position_mm | array `[x,y,z]` | position, mm, `%.3f`; equals that point's |
+| process | string | the ending process, as in the point |
+| secondaries | array of integers | the `track_id` of every secondary created in the step, in ascending order; empty if none. A listed id may belong to a track that is not in `tracks` (dropped by 4); `tracks_total` counts it |
+| edep_GeV | number | energy deposited in the step, GeV, `%.7f`; equals that point's |
+
+### 7.5 Selection rules, caps and dropped counts
+
+All the rules of section 4 apply to tracks unchanged (500 tracks per event, `dropped_tracks`).
+For interactions:
+
+1. Only the interactions of kept tracks are candidates (7.4).
+2. **Cap: at most 2000 interactions per event** (a constant of the format,
+   `max_interactions_per_event`). If more are candidates, those with the largest
+   **transferred energy** are kept, where transferred energy is the step's `edep_GeV` plus
+   the sum of the kinetic energies at creation of its secondaries; ties are broken by
+   ascending `t_ns`, then ascending `track_id`, then ascending `point_index`. The kept
+   interactions are then written in the order of 7.2. The rule depends only on the simulated
+   data, never on the number of threads.
+3. `dropped_interactions` = `interactions_total` - the number kept.
+
+Only the 500-track memory bound of section 4 holds while the event is tracked; the
+interactions of stored tracks are kept with them and freed with them, and the final
+choice of 2. is made when the event ends.
+
+### 7.6 Size
+
+Format 2 adds four numbers and one string to every point and the interaction list, so
+the file is larger. Measured on this build (macOS arm64, Release, 4 threads,
+`docs/examples/electron_shower.json`, 5 GeV electrons, the default 10 events, 1 MeV, 500
+tracks):
+
+Measurements are added in a later commit of this milestone, once the writer exists.
+
+The cap on tracks bounds the file: at most 100 events x 500 tracks, each with its
+points. If a file is too large for a given use, the proposal for a compact encoding is in
+7.8; it is not part of format 2.
+
+### 7.7 The export is a read-only view; what can be checked from it
+
+- The export only **reads** what Geant4 already computes, in the stepping and tracking
+  hooks. It changes no physics, no seeding and no random number. Therefore
+  `hits.arrow`, and its OID, with `--export-3d` equal those without it, for 1 and for 4 threads
+  (a test compares them, section 5), and the same spec and seed give identical files for
+  any number of threads.
+- On an event where nothing was dropped (`dropped_tracks` is 0 and `dropped_interactions`
+  is 0, which needs `--export-min-energy 0` and fewer than 500 tracks), the energy balance
+  holds: the sum of `edep_GeV` over all points of all tracks, plus the `kinetic_energy_GeV`
+  of the last point of every track whose `end_process` is `"Transportation"` (the
+  energy that left the world), equals the kinetic energy of the primary
+  (`kinetic_energy_start_GeV` of track 1) within the tolerance the tests state (tests/check_export3d.py; the measured values are in STATUS.md). The
+  balance is not exact: nuclear binding and neutrino energy are not a deposit, and
+  rounding to 0.1 keV per number adds up over the steps.
+- Dropped tracks break the balance by their own energy; a viewer that shows "energy
+  still in flight" for an event with dropped tracks shows a lower bound.
+
+### 7.8 Proposal (not part of format 2): a compact encoding
+
+A point as a row repeats the same short strings (`Transportation`, `eIoni`, ...) and the
+brackets for every point. The alternative is **columns per track**: instead of `points`,
+`"point_columns":{"x_mm":[..],"y_mm":[..],"z_mm":[..],"t_ns":[..],"kinetic_energy_GeV":[..],"edep_GeV":[..],"process":[..]}`,
+with `process` as indices into a top-level `"processes":[...]` list in order of first use.
+It is smaller because the process names and the delimiters are not repeated, and because
+a column of similar numbers compresses better; it is faster to load into typed arrays.
+The measured saving, from the same file, is in 7.6. It would be a new major version, because
+it removes `points`. It is proposed only if the size above is a problem; with the
+measured sizes it is not recommended now.
+
+## 8. Teaching examples
+
+Two specs in `docs/examples/` are meant for looking at, not for physics analysis. Both are
+run with the export and **all tracks and interactions kept**:
+
+```sh
+vikshep-sim run --spec docs/examples/<name>.json --out <dir> --export-3d --export-min-energy 0
+```
+
+The two examples are added in a later commit of this milestone, with their measured numbers.
+
+## 9. Replay in scripts/view_3d.html
+
+The viewer in `scripts/view_3d.html` plays format 2 in physical time: a time slider with play,
+pause, step and speed; tracks grow with time with a bright head; interaction markers appear at
+their time, coloured by process; slabs glow with the energy deposited so far; a readout shows
+time, tracks alive, deposited energy and energy in flight. It is a **replay of the stored
+event**, not a live simulation. A format 1 file loads with the playback disabled.
 
 ## Decisions to confirm
 
@@ -312,3 +522,7 @@ selection rules of section 4 is a major change.
 | X6 | Event and track limits | 10 events (cap 100), 1 MeV, 500 tracks per event | Other values |
 | X7 | trajectories.json unit | mm, energy in GeV | metres |
 | X8 | Export OIDs | Own OIDs in provenance.json and run_summary.json, never the OID of the run | Fold into the run OID (rejected: the OID rule is fixed) |
+| X9 | Format 2 version number | `"2.0"` (points change shape); `geometry.glb` stays `"1.0"` | `"1.1"` |
+| X10 | Interaction definition | Steps ended by a process other than travelling, scattering or step limits; ionisation only with a delta ray (7.4) | Every step with a discrete process |
+| X11 | Interaction cap | 2000 per event, by transferred energy (7.5) | Earliest in time |
+| X12 | Where energy was deposited | Midpoint of the step segment (7.3) | An extra volume field on every point |
