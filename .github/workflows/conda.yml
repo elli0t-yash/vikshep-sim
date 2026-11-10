@@ -88,10 +88,17 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # The artifacts keep rattler-build's platform folders (dist/linux-64/*.conda and so on).
       - name: Upload to anaconda.org
         env:
           ANACONDA_API_KEY: ${{ secrets.ANACONDA_API_KEY }}
         run: |
-          ls -l dist
+          shopt -s nullglob
+          pkgs=(dist/*/*.conda)
+          ls -l "${pkgs[@]}"
+          if [ "${#pkgs[@]}" -ne 3 ]; then
+            echo "expected 3 packages (linux-64, osx-arm64, osx-64), found ${#pkgs[@]}" >&2
+            exit 1
+          fi
           "$MAMBA_EXE" run --name rattler rattler-build upload anaconda \
-            --owner "${{ vars.ANACONDA_OWNER }}" dist/*.conda
+            --owner "${{ vars.ANACONDA_OWNER }}" "${pkgs[@]}"

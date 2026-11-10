@@ -906,8 +906,13 @@ Written 2026-11-07. Nothing built locally: the package is built and tested by
 - [x] CI build green on linux-64, osx-arm64, osx-64 (macos-15-intel): conda workflow run 42402431643
       on commit 00fb6ea; each build installs the package and runs its tests, including the
       20-event electron_shower.json run
-- [ ] Owner: anaconda.org channel, ANACONDA_OWNER variable, "anaconda" environment with
-      ANACONDA_API_KEY (and a required reviewer), then a v0.1.0 tag
+- [x] Owner: anaconda.org channel `vikshep`, ANACONDA_OWNER variable, "anaconda" environment with
+      ANACONDA_API_KEY, required reviewers and a `v*` tag rule (2026-11-10)
+- [ ] Upload: the first v0.1.0 run (42821937948, 2026-11-10) built and tested all three packages,
+      then the upload step failed before uploading anything: it passed `dist/*.conda`, but the
+      downloaded artifacts keep the platform folders (`dist/linux-64/...`). The step now collects
+      `dist/*/*.conda` and stops unless it finds 3 packages. Nothing was published, so the v0.1.0
+      tag moves to the merge of this fix.
 
 Decisions to confirm:
 
