@@ -33,7 +33,10 @@ requirements:
     # macOS deployment target 13.3 (std::to_chars, see variants.yaml)
     - if: osx
       then: ${{ stdlib('c') }}
-    - cmake
+    # Below 4.5: cmake 4.5.0 turns the bare tool names of conda-forge's $CMAKE_ARGS
+    # (-DCMAKE_AR=x86_64-conda-linux-gnu-ar) into paths under the source folder, and the
+    # linux-64 build fails at the first static library. 4.4.5 builds it.
+    - cmake <4.5
     - ninja
   host:
     - geant4 ==11.4.3 *noqt*
