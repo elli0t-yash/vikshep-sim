@@ -7,6 +7,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
+#include <mutex>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -64,6 +66,60 @@ std::string base_name(const std::string& path)
 
 // ------------------------------------------------------------------ trajectories.json
 
+namespace {
+std::mutex& process_mutex()
+{
+  static std::mutex m;
+  return m;
+}
+std::deque<std::string>& process_names()
+{
+  static std::deque<std::string> names;  // a deque: references stay valid when it grows
+  return names;
+}
+}  // namespace
+
+std::uint16_t export_process_id(const std::string& name)
+{
+  std::lock_guard<std::mutex> lock(process_mutex());
+  auto& names = process_names();
+  for (std::size_t i = 0; i < names.size(); ++i) {
+    if (names[i] == name) {
+      return static_cast<std::uint16_t>(i);
+    }
+  }
+  if (names.size() >= kNoProcess - 1) {
+    throw ExportError("too many distinct process names");
+  }
+  names.push_back(name);
+  return static_cast<std::uint16_t>(names.size() - 1);
+}
+
+const std::string& export_process_name(std::uint16_t id)
+{
+  static const std::string none = "none";
+  if (id == kNoProcess) {
+    return none;
+  }
+  std::lock_guard<std::mutex> lock(process_mutex());
+  return process_names().at(id);
+}
+
+bool is_interaction_step(const std::string& process, std::size_t secondaries)
+{
+  static const char* const travelling[] = {"Transportation", "CoupledTransportation", "msc", "StepLimiter",
+                                           "UserSpecialCuts"};
+  for (const char* name : travelling) {
+    if (process == name) {
+      return false;
+    }
+  }
+  const std::string ioni = "Ioni";
+  const bool ionisation = process.size() >= ioni.size() &&
+                          process.compare(process.size() - ioni.size(), ioni.size(), ioni) == 0;
+  return !ionisation || secondaries > 0;
+}
+
 bool track_kept_before(const TrackRecord& a, const TrackRecord& b)
 {
   const bool pa = a.parent_id == 0;
@@ -77,18 +133,51 @@ bool track_kept_before(const TrackRecord& a, const TrackRecord& b)
   return a.track_id < b.track_id;
 }
 
-EventTracks select_tracks(std::vector<TrackRecord> eligible, std::uint32_t tracks_total)
+EventTracks select_tracks(std::vector<TrackRecord> eligible, std::uint32_t tracks_total,
+                          std::uint32_t interactions_total)
 {
-  const std::size_t cap = static_cast<std::size_t>(kExportMaxTracksPerEvent);
-  if (eligible.size() > cap) {
+  const std::size_t track_cap = static_cast<std::size_t>(kExportMaxTracksPerEvent);
+  if (eligible.size() > track_cap) {
     std::stable_sort(eligible.begin(), eligible.end(), track_kept_before);
-    eligible.resize(cap);
+    eligible.resize(track_cap);
   }
   std::sort(eligible.begin(), eligible.end(),
             [](const TrackRecord& a, const TrackRecord& b) { return a.track_id < b.track_id; });
   EventTracks result;
   result.tracks_total = tracks_total;
+  result.interactions_total = interactions_total;
   result.tracks = std::move(eligible);
+
+  // Interactions of the kept tracks (section 7.5): limit, then order for output.
+  for (TrackRecord& t : result.tracks) {
+    for (InteractionRecord& i : t.interactions) {
+      i.track_id = t.track_id;
+      std::sort(i.secondaries.begin(), i.secondaries.end());
+      result.interactions.push_back(std::move(i));
+    }
+    t.interactions.clear();
+  }
+  const auto by_time = [](const InteractionRecord& a, const InteractionRecord& b) {
+    if (a.t_ns != b.t_ns) {
+      return a.t_ns < b.t_ns;
+    }
+    if (a.track_id != b.track_id) {
+      return a.track_id < b.track_id;
+    }
+    return a.point_index < b.point_index;
+  };
+  const std::size_t cap = static_cast<std::size_t>(kExportMaxInteractionsPerEvent);
+  if (result.interactions.size() > cap) {
+    std::sort(result.interactions.begin(), result.interactions.end(),
+              [&](const InteractionRecord& a, const InteractionRecord& b) {
+                if (a.transferred_gev != b.transferred_gev) {
+                  return a.transferred_gev > b.transferred_gev;
+                }
+                return by_time(a, b);
+              });
+    result.interactions.resize(cap);
+  }
+  std::sort(result.interactions.begin(), result.interactions.end(), by_time);
   return result;
 }
 
@@ -119,14 +208,38 @@ bool TrackSelector::begin_track(TrackRecord start)
   return true;
 }
 
-void TrackSelector::add_point(const std::array<double, 3>& point)
+void TrackSelector::add_step(const std::array<double, 3>& point, double t_ns, double kinetic_energy_gev,
+                             double edep_gev, std::uint16_t process)
 {
-  kept_.back().points.push_back(point);
+  TrackRecord& t = kept_.back();
+  t.points.push_back(point);
+  t.t_ns.push_back(t_ns);
+  t.kinetic_energy_gev.push_back(kinetic_energy_gev);
+  t.edep_gev.push_back(edep_gev);
+  t.process.push_back(process);
 }
 
-EventTracks TrackSelector::finish(std::uint32_t tracks_total)
+std::size_t TrackSelector::add_interaction(InteractionRecord interaction)
 {
-  return select_tracks(std::move(kept_), tracks_total);
+  TrackRecord& t = kept_.back();
+  interaction.point_index = static_cast<std::int32_t>(t.points.size()) - 1;
+  t.interactions.push_back(std::move(interaction));
+  return t.interactions.size() - 1;
+}
+
+TrackRecord* TrackSelector::find(std::int32_t track_id)
+{
+  for (TrackRecord& t : kept_) {
+    if (t.track_id == track_id) {
+      return &t;
+    }
+  }
+  return nullptr;
+}
+
+EventTracks TrackSelector::finish(std::uint32_t tracks_total, std::uint32_t interactions_total)
+{
+  return select_tracks(std::move(kept_), tracks_total, interactions_total);
 }
 
 std::string format_fixed(double value, int decimals)
@@ -148,35 +261,66 @@ std::string format_fixed(double value, int decimals)
 
 std::string trajectories_header(const std::string& spec_oid, const ExportOptions& options)
 {
-  return std::string("{\"format_version\":\"") + kExportFormatVersion + "\",\"unit\":\"mm\",\"spec_oid\":\"" +
+  return std::string("{\"format_version\":\"") + kTrajectoriesFormatVersion + "\",\"unit\":\"mm\",\"spec_oid\":\"" +
          spec_oid + "\",\"min_energy_GeV\":" + format_fixed(options.min_energy_gev, 6) +
          ",\"max_tracks_per_event\":" + std::to_string(kExportMaxTracksPerEvent) +
-         ",\"events_requested\":" + std::to_string(options.events) + ",\"events\":[\n";
+         ",\"max_interactions_per_event\":" + std::to_string(kExportMaxInteractionsPerEvent) +
+         ",\"events_requested\":" + std::to_string(options.events) +
+         ",\"point_fields\":[\"x_mm\",\"y_mm\",\"z_mm\",\"t_ns\",\"kinetic_energy_GeV\",\"edep_GeV\",\"process\"]"
+         ",\"events\":[\n";
 }
 
 std::string trajectories_event_json(std::uint64_t event_id, const EventTracks& event)
 {
   std::string out = "{\"event_id\":" + std::to_string(event_id) +
                     ",\"tracks_total\":" + std::to_string(event.tracks_total) +
-                    ",\"dropped_tracks\":" + std::to_string(event.dropped()) + ",\"tracks\":[";
+                    ",\"dropped_tracks\":" + std::to_string(event.dropped()) +
+                    ",\"interactions_total\":" + std::to_string(event.interactions_total) +
+                    ",\"dropped_interactions\":" + std::to_string(event.dropped_interactions()) + ",\"tracks\":[";
+  const auto text = [](const std::string& name) { return nlohmann::json(name).dump(); };
   bool first_track = true;
   for (const TrackRecord& t : event.tracks) {
     if (!first_track) {
       out += ',';
     }
     first_track = false;
+    const std::size_t n = t.points.size();
+    if (t.t_ns.size() != n || t.kinetic_energy_gev.size() != n || t.edep_gev.size() != n || t.process.size() != n) {
+      throw ExportError("a track has columns of different lengths");
+    }
     out += "{\"track_id\":" + std::to_string(t.track_id) + ",\"parent_id\":" + std::to_string(t.parent_id) +
-           ",\"pdg\":" + std::to_string(t.pdg) + ",\"charge\":" + std::to_string(t.charge) +
+           ",\"pdg\":" + std::to_string(t.pdg) + ",\"particle\":" + text(t.particle) +
+           ",\"charge\":" + std::to_string(t.charge) +
+           ",\"creator_process\":" + text(t.creator_process == kNoProcess ? "primary" : export_process_name(t.creator_process)) +
+           ",\"end_process\":" + text(export_process_name(n > 0 ? t.process.back() : kNoProcess)) +
            ",\"kinetic_energy_start_GeV\":" + format_fixed(t.kinetic_energy_start_gev, 6) + ",\"points\":[";
-    bool first_point = true;
-    for (const auto& p : t.points) {
-      if (!first_point) {
+    for (std::size_t k = 0; k < n; ++k) {
+      if (k > 0) {
         out += ',';
       }
-      first_point = false;
-      out += '[' + format_fixed(p[0], 3) + ',' + format_fixed(p[1], 3) + ',' + format_fixed(p[2], 3) + ']';
+      const auto& p = t.points[k];
+      out += '[' + format_fixed(p[0], 3) + ',' + format_fixed(p[1], 3) + ',' + format_fixed(p[2], 3) + ',' +
+             format_fixed(t.t_ns[k], 6) + ',' + format_fixed(t.kinetic_energy_gev[k], 7) + ',' +
+             format_fixed(t.edep_gev[k], 7) + ',' +
+             (t.process[k] == kNoProcess ? std::string("null") : text(export_process_name(t.process[k]))) + ']';
     }
     out += "]}";
+  }
+  out += "],\"interactions\":[";
+  bool first_interaction = true;
+  for (const InteractionRecord& i : event.interactions) {
+    if (!first_interaction) {
+      out += ',';
+    }
+    first_interaction = false;
+    out += "{\"track_id\":" + std::to_string(i.track_id) + ",\"point_index\":" + std::to_string(i.point_index) +
+           ",\"t_ns\":" + format_fixed(i.t_ns, 6) + ",\"position_mm\":[" + format_fixed(i.position_mm[0], 3) + ',' +
+           format_fixed(i.position_mm[1], 3) + ',' + format_fixed(i.position_mm[2], 3) +
+           "],\"process\":" + text(export_process_name(i.process)) + ",\"secondaries\":[";
+    for (std::size_t k = 0; k < i.secondaries.size(); ++k) {
+      out += (k > 0 ? "," : "") + std::to_string(i.secondaries[k]);
+    }
+    out += "],\"edep_GeV\":" + format_fixed(i.edep_gev, 7) + '}';
   }
   out += "]}";
   return out;

@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "trajectories.json, format_version 2.0 (docs/EXPORT3D.md, sections 3 and 7)",
+  "description": "Structure of the file. The fixed-precision number format, the key order and the line layout are checked by tests/check_export3d.py, JSON Schema cannot express them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format_version", "unit", "spec_oid", "min_energy_GeV", "max_tracks_per_event",
+               "max_interactions_per_event", "events_requested", "point_fields", "events"],
+  "properties": {
+    "format_version": {"const": "2.0"},
+    "unit": {"const": "mm"},
+    "spec_oid": {"type": "string", "pattern": "^[0-9a-f]{28}$"},
+    "min_energy_GeV": {"type": "number", "minimum": 0, "maximum": 10000},
+    "max_tracks_per_event": {"const": 500},
+    "max_interactions_per_event": {"const": 2000},
+    "events_requested": {"type": "integer", "minimum": 1, "maximum": 100},
+    "point_fields": {"const": ["x_mm", "y_mm", "z_mm", "t_ns", "kinetic_energy_GeV", "edep_GeV", "process"]},
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["event_id", "tracks_total", "dropped_tracks", "interactions_total", "dropped_interactions",
+                     "tracks", "interactions"],
+        "properties": {
+          "event_id": {"type": "integer", "minimum": 0},
+          "tracks_total": {"type": "integer", "minimum": 1},
+          "dropped_tracks": {"type": "integer", "minimum": 0},
+          "interactions_total": {"type": "integer", "minimum": 0},
+          "dropped_interactions": {"type": "integer", "minimum": 0},
+          "tracks": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 500,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["track_id", "parent_id", "pdg", "particle", "charge", "creator_process", "end_process",
+                           "kinetic_energy_start_GeV", "points"],
+              "properties": {
+                "track_id": {"type": "integer", "minimum": 1},
+                "parent_id": {"type": "integer", "minimum": 0},
+                "pdg": {"type": "integer"},
+                "particle": {"type": "string", "minLength": 1},
+                "charge": {"type": "integer"},
+                "creator_process": {"type": "string", "minLength": 1},
+                "end_process": {"type": "string", "minLength": 1},
+                "kinetic_energy_start_GeV": {"type": "number", "minimum": 0},
+                "points": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "array",
+                    "minItems": 7,
+                    "maxItems": 7,
+                    "prefixItems": [
+                      {"type": "number"}, {"type": "number"}, {"type": "number"},
+                      {"type": "number", "minimum": 0},
+                      {"type": "number", "minimum": 0},
+                      {"type": "number", "minimum": 0},
+                      {"type": ["string", "null"]}
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "interactions": {
+            "type": "array",
+            "maxItems": 2000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["track_id", "point_index", "t_ns", "position_mm", "process", "secondaries", "edep_GeV"],
+              "properties": {
+                "track_id": {"type": "integer", "minimum": 1},
+                "point_index": {"type": "integer", "minimum": 1},
+                "t_ns": {"type": "number", "minimum": 0},
+                "position_mm": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+                "process": {"type": "string", "minLength": 1},
+                "secondaries": {"type": "array", "items": {"type": "integer", "minimum": 2}},
+                "edep_GeV": {"type": "number", "minimum": 0}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

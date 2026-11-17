@@ -17,10 +17,12 @@
 constexpr int kExportEventsDefault = 10;
 constexpr int kExportEventsMax = 100;
 constexpr int kExportMaxTracksPerEvent = 500;
+constexpr int kExportMaxInteractionsPerEvent = 2000;
 constexpr double kExportMinEnergyDefaultGeV = 0.001;
 constexpr double kExportMinEnergyMaxGeV = 10000.0;
 constexpr int kTubeSegments = 64;
-constexpr const char* kExportFormatVersion = "1.0";
+constexpr const char* kExportFormatVersion = "1.0";               // geometry.glb
+constexpr const char* kTrajectoriesFormatVersion = "2.0";         // trajectories.json
 constexpr const char* kGeometryFileName = "geometry.glb";
 constexpr const char* kTrajectoriesFileName = "trajectories.json";
 
@@ -43,7 +45,16 @@ struct ExportedFile {
 // (every primary and every track at or above the minimum energy): at most kExportMaxTracksPerEvent,
 // primaries first, then by descending energy, ties by ascending track_id; the result is in
 // ascending track_id. tracks_total is the number of tracks Geant4 created in the event.
-EventTracks select_tracks(std::vector<TrackRecord> eligible, std::uint32_t tracks_total);
+// The interactions of the kept tracks are then moved into EventTracks::interactions and limited to
+// kExportMaxInteractionsPerEvent (section 7.5): the largest transferred energy first, ties by
+// ascending time, track_id, point_index; the result is ordered by time, track_id, point_index.
+// interactions_total is the number of interactions Geant4 produced in the event.
+EventTracks select_tracks(std::vector<TrackRecord> eligible, std::uint32_t tracks_total,
+                          std::uint32_t interactions_total = 0);
+
+// The rule of section 7.4: is a step that ended in `process` and created `secondaries` secondaries
+// an interaction?
+bool is_interaction_step(const std::string& process, std::size_t secondaries);
 
 // The order of EXPORT3D.md, section 4.3, as a strict total order: true when `a` is kept in
 // preference to `b` (primaries first, by ascending track_id; then descending energy, ties by
@@ -58,12 +69,19 @@ bool track_kept_before(const TrackRecord& a, const TrackRecord& b);
 class TrackSelector {
  public:
   // Offers a track that passed the energy test (its first point is already in `start`). Returns
-  // true if it is stored; add_point then appends to it, until the next begin_track.
+  // true if it is stored; add_step then appends to it, until the next begin_track.
   bool begin_track(TrackRecord start);
-  void add_point(const std::array<double, 3>& point);
+  // One step of the stored track: its end point with time, energy, deposit and ending process.
+  void add_step(const std::array<double, 3>& point, double t_ns, double kinetic_energy_gev, double edep_gev,
+                std::uint16_t process);
+  // Records an interaction at the last point of the stored track; returns its index in
+  // that track's `interactions`.
+  std::size_t add_interaction(InteractionRecord interaction);
+  // The stored track with this id, or nullptr (it was refused or pushed out).
+  TrackRecord* find(std::int32_t track_id);
   std::size_t stored() const { return kept_.size(); }
   std::size_t peak_stored() const { return peak_; }
-  EventTracks finish(std::uint32_t tracks_total);
+  EventTracks finish(std::uint32_t tracks_total, std::uint32_t interactions_total = 0);
 
  private:
   std::vector<TrackRecord> kept_;
