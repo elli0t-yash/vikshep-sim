@@ -418,16 +418,24 @@ struct TrackCollector {
   std::unordered_map<const G4Track*, std::pair<std::int32_t, std::size_t>> pending;
 };
 
-// The id of a process, looked up once per process object and thread.
-std::uint16_t process_id_of(const G4VProcess* process)
+// What the export needs to know of a process: its id, and whether a step it ends is an interaction
+// (docs/EXPORT3D.md, 7.4) without and with secondaries.
+struct ProcessInfo {
+  std::uint16_t id;
+  bool interaction_without_secondaries;
+  bool interaction_with_secondaries;
+};
+
+// Looked up once per process object and thread, so that the stepping hook takes no lock and compares
+// no names: the registry of process names is shared by the threads and guarded by a mutex.
+const ProcessInfo& process_info_of(const G4VProcess* process)
 {
-  if (process == nullptr) {
-    return export_process_id("Unknown");
-  }
-  static thread_local std::unordered_map<const G4VProcess*, std::uint16_t> cache;
+  static thread_local std::unordered_map<const G4VProcess*, ProcessInfo> cache;
   auto it = cache.find(process);
   if (it == cache.end()) {
-    it = cache.emplace(process, export_process_id(process->GetProcessName())).first;
+    const std::string name = process != nullptr ? std::string(process->GetProcessName()) : std::string("Unknown");
+    const ProcessInfo info{export_process_id(name), is_interaction_step(name, 0), is_interaction_step(name, 1)};
+    it = cache.emplace(process, info).first;
   }
   return it->second;
 }
@@ -474,7 +482,7 @@ class ExportTrackingAction : public G4UserTrackingAction {
     record.charge = static_cast<std::int32_t>(std::lround(track->GetDefinition()->GetPDGCharge()));
     record.kinetic_energy_start_gev = energy_gev;
     record.particle = track->GetDefinition()->GetParticleName();
-    record.creator_process = track->GetCreatorProcess() != nullptr ? process_id_of(track->GetCreatorProcess()) : kNoProcess;
+    record.creator_process = track->GetCreatorProcess() != nullptr ? process_info_of(track->GetCreatorProcess()).id : kNoProcess;
     const G4ThreeVector start = track->GetPosition();
     record.points.push_back({start.x() / mm, start.y() / mm, start.z() / mm});
     record.t_ns.push_back(track->GetGlobalTime() / ns);
@@ -502,10 +510,11 @@ class ExportSteppingAction : public G4UserSteppingAction {
     }
     const G4StepPoint* post = step->GetPostStepPoint();
     const G4VProcess* defining = post->GetProcessDefinedStep();
-    const std::uint16_t process = process_id_of(defining);
+    const ProcessInfo& info = process_info_of(defining);
+    const std::uint16_t process = info.id;
     const auto* secondaries = step->GetSecondaryInCurrentStep();
     const std::size_t created = secondaries != nullptr ? secondaries->size() : 0;
-    const bool interaction = is_interaction_step(export_process_name(process), created);
+    const bool interaction = created > 0 ? info.interaction_with_secondaries : info.interaction_without_secondaries;
     if (interaction) {
       ++c.interactions;
     }
