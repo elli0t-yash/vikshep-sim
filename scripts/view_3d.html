@@ -545,8 +545,13 @@ function buildRoleToggles() {
   $('roles').innerHTML = '';
   for (const role of roles) {
     const count = geometry.nodes.filter((n) => n.role === role).length;
+    // Built from nodes, not HTML: the role comes from the loaded file.
     const label = document.createElement('label');
-    label.innerHTML = '<input type="checkbox" checked data-role="' + role + '"> ' + role + ' (' + count + ')';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = true;
+    box.dataset.role = role;
+    label.append(box, ' ' + role + ' (' + count + ')');
     $('roles').appendChild(label);
   }
   $('volumes-box').hidden = false;
@@ -865,9 +870,16 @@ function buildLegend() {
   const counts = {};
   for (const i of ev.interactions) counts[i.process] = (counts[i.process] || 0) + 1;
   for (const name of Object.keys(counts).sort()) {
+    // Built from nodes, not HTML: the process name comes from the loaded file.
     const label = document.createElement('label');
-    label.innerHTML = '<input type="checkbox" data-proc="' + name + '"' + (old.has(name) ? '' : ' checked') + '> <span class="swatch" style="background:' +
-      (processColours[name] || '#888') + '"></span>' + name + ' (' + counts[name] + ')';
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.checked = !old.has(name);
+    check.dataset.proc = name;
+    const swatch = document.createElement('span');
+    swatch.className = 'swatch';
+    swatch.style.background = processColours[name] || '#888';
+    label.append(check, ' ', swatch, name + ' (' + counts[name] + ')');
     box.appendChild(label);
   }
   box.querySelectorAll('input').forEach((c) => c.addEventListener('change', () => { buildMarkers(); clock.dirty = true; }));
